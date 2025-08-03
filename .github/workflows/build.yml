@@ -41,7 +41,6 @@ jobs:
       with:
         toolchain: stable
         targets: ${{ matrix.target }}
-        override: true
 
     - name: Cache Rust dependencies
       uses: actions/cache@v4
@@ -112,7 +111,6 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
-        override: true
 
     - name: Cache Rust dependencies
       uses: actions/cache@v4
