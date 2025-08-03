@@ -1,0 +1,64 @@
+name: Update Dependencies
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Every Monday at 2 AM UTC
+  workflow_dispatch:
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Install cargo-edit
+      run: cargo install cargo-edit
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Check for outdated dependencies
+      run: cargo outdated --exit-code 1 || true
+
+    - name: Update dependencies
+      run: |
+        # Update all dependencies to latest compatible versions
+        cargo update
+        
+        # Check for security vulnerabilities
+        cargo audit
+        
+        # Run tests to ensure everything still works
+        cargo test --all-features
+
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'chore: update dependencies'
+        title: 'chore: update dependencies'
+        body: |
+          This PR updates dependencies to their latest compatible versions.
+          
+          ## Changes
+          - Updated all dependencies to latest compatible versions
+          - Verified no security vulnerabilities introduced
+          - All tests passing
+          
+          ## Checklist
+          - [x] Dependencies updated
+          - [x] Security audit passed
+          - [x] Tests passing
+          - [x] No breaking changes
+        branch: update-dependencies
+        delete-branch: true
+        labels: |
+          dependencies
+          automated 

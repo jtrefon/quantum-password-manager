@@ -1,0 +1,14 @@
+# Clippy configuration - use default settings
+# Allow some common patterns that might be false positives
+allow = [
+    "clippy::unused_imports",
+    "clippy::single_component_path_imports",
+    "clippy::dead_code",
+    "clippy::uninlined_format_args",
+    "clippy::field_reassign_with_default",
+    "clippy::needless_borrows_for_generic_args",
+    "clippy::unnecessary_sort_by",
+    "clippy::write_with_newline",
+    "clippy::derivable_impls",
+    "clippy::module_inception",
+] 

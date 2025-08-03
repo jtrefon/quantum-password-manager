@@ -1,7 +1,8 @@
-mod models;
+mod cli;
 mod crypto;
 mod database;
-mod cli;
+mod hardware;
+mod models;
 
 #[cfg(test)]
 mod tests;

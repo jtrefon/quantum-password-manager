@@ -1,10 +1,9 @@
-use crate::models::{PasswordDatabase, Item, SecurityLevel, SecuritySettings, DatabaseSettings};
-use crate::crypto::EncryptionContext;
-use anyhow::{Result, anyhow};
+use crate::crypto::{EncryptionContext, ProgressCallback};
+use crate::models::{DatabaseSettings, Item, PasswordDatabase, SecurityLevel, SecuritySettings};
+use anyhow::{anyhow, Result};
 use chrono::Utc;
-use std::path::Path;
-use std::fs;
 use serde_json;
+use std::fs;
 use uuid::Uuid;
 
 /// Database manager for handling password database operations
@@ -17,7 +16,16 @@ pub struct DatabaseManager {
 impl DatabaseManager {
     /// Create a new empty database
     pub fn new(name: String, security_level: SecurityLevel) -> Result<Self> {
-        let settings = SecuritySettings::default();
+        Self::new_with_progress(name, security_level, None)
+    }
+
+    /// Create a new empty database with progress callback
+    pub fn new_with_progress(
+        name: String,
+        security_level: SecurityLevel,
+        _progress_callback: Option<ProgressCallback>,
+    ) -> Result<Self> {
+        let _settings = SecuritySettings::default();
         let database = PasswordDatabase {
             version: "1.0.0".to_string(),
             created_at: Utc::now(),
@@ -42,25 +50,62 @@ impl DatabaseManager {
 
     /// Load database from file
     pub fn load_from_file(file_path: &str, master_password: &str) -> Result<Self> {
-        let encrypted_data = fs::read(file_path)
-            .map_err(|e| anyhow!("Failed to read database file: {}", e))?;
+        Self::load_from_file_with_progress(file_path, master_password, None)
+    }
+
+    /// Load database from file with progress callback
+    pub fn load_from_file_with_progress(
+        file_path: &str,
+        master_password: &str,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Result<Self> {
+        let encrypted_data =
+            fs::read(file_path).map_err(|e| anyhow!("Failed to read database file: {}", e))?;
 
         // Try to decrypt with different security levels
-        for security_level in [SecurityLevel::Standard, SecurityLevel::High, SecurityLevel::Quantum] {
+        for (i, security_level) in [
+            SecurityLevel::Standard,
+            SecurityLevel::High,
+            SecurityLevel::Quantum,
+        ]
+        .iter()
+        .enumerate()
+        {
+            if let Some(callback) = &progress_callback {
+                if let Ok(callback) = callback.lock() {
+                    callback(
+                        &format!("Trying security level {:?}", security_level),
+                        (i as f32) / 3.0,
+                    );
+                }
+            }
+
             let settings = SecuritySettings::default();
-            let encryption_context = EncryptionContext::new(master_password, security_level.clone(), settings)?;
-            
+            let encryption_context = EncryptionContext::new_with_progress(
+                master_password,
+                security_level.clone(),
+                settings,
+                progress_callback.clone(),
+            )?;
+
             match encryption_context.decrypt(&encrypted_data) {
                 Ok(decrypted_data) => {
                     let database: PasswordDatabase = serde_json::from_slice(&decrypted_data)
                         .map_err(|e| anyhow!("Failed to deserialize database: {}", e))?;
-                    
+
                     // Verify integrity
-                    let calculated_hash = encryption_context.calculate_integrity_hash(&database.items)?;
+                    let calculated_hash =
+                        encryption_context.calculate_integrity_hash(&database.items)?;
                     if calculated_hash != database.integrity_hash {
                         return Err(anyhow!("Database integrity check failed"));
                     }
-                    
+
+                    if let Some(callback) = &progress_callback {
+                        if let Ok(callback) = callback.lock() {
+                            callback("Database loaded successfully", 1.0);
+                        }
+                    }
+
                     return Ok(Self {
                         database,
                         encryption_context: Some(encryption_context),
@@ -71,31 +116,75 @@ impl DatabaseManager {
             }
         }
 
-        Err(anyhow!("Failed to decrypt database with any security level"))
+        Err(anyhow!(
+            "Failed to decrypt database with any security level"
+        ))
     }
 
     /// Save database to file
     pub fn save_to_file(&mut self, file_path: &str, master_password: &str) -> Result<()> {
+        self.save_to_file_with_progress(file_path, master_password, None)
+    }
+
+    /// Save database to file with progress callback
+    pub fn save_to_file_with_progress(
+        &mut self,
+        file_path: &str,
+        master_password: &str,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Result<()> {
         let encryption_context = if let Some(ctx) = &self.encryption_context {
             ctx.clone()
         } else {
-            EncryptionContext::new(master_password, self.database.security_level.clone(), SecuritySettings::default())?
+            EncryptionContext::new_with_progress(
+                master_password,
+                self.database.security_level.clone(),
+                SecuritySettings::default(),
+                progress_callback.clone(),
+            )?
         };
 
         // Update integrity hash
-        self.database.integrity_hash = encryption_context.calculate_integrity_hash(&self.database.items)?;
+        if let Some(callback) = &progress_callback {
+            if let Ok(callback) = callback.lock() {
+                callback("Calculating integrity hash", 0.2);
+            }
+        }
+        self.database.integrity_hash =
+            encryption_context.calculate_integrity_hash(&self.database.items)?;
         self.database.updated_at = Utc::now();
 
         // Serialize database
+        if let Some(callback) = &progress_callback {
+            if let Ok(callback) = callback.lock() {
+                callback("Serializing database", 0.4);
+            }
+        }
         let json_data = serde_json::to_vec(&self.database)
             .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
 
         // Encrypt data
+        if let Some(callback) = &progress_callback {
+            if let Ok(callback) = callback.lock() {
+                callback("Encrypting database", 0.6);
+            }
+        }
         let encrypted_data = encryption_context.encrypt(&json_data)?;
 
         // Write to file
+        if let Some(callback) = &progress_callback {
+            if let Ok(callback) = callback.lock() {
+                callback("Writing to file", 0.8);
+            }
+        }
         fs::write(file_path, encrypted_data)
             .map_err(|e| anyhow!("Failed to write database file: {}", e))?;
+
+        if let Some(callback) = &progress_callback {
+            if let Ok(callback) = callback.lock() {
+                callback("Database saved successfully", 1.0);
+            }
+        }
 
         self.encryption_context = Some(encryption_context);
         self.file_path = Some(file_path.to_string());
@@ -125,12 +214,18 @@ impl DatabaseManager {
 
     /// Get item by ID
     pub fn get_item(&self, item_id: Uuid) -> Option<&Item> {
-        self.database.items.iter().find(|item| item.get_id() == item_id)
+        self.database
+            .items
+            .iter()
+            .find(|item| item.get_id() == item_id)
     }
 
     /// Get item by ID (mutable)
     pub fn get_item_mut(&mut self, item_id: Uuid) -> Option<&mut Item> {
-        self.database.items.iter_mut().find(|item| item.get_id() == item_id)
+        self.database
+            .items
+            .iter_mut()
+            .find(|item| item.get_id() == item_id)
     }
 
     /// Update item in database
@@ -138,8 +233,13 @@ impl DatabaseManager {
         if let Some(ctx) = &self.encryption_context {
             let mut updated_item = updated_item;
             ctx.update_item_integrity(&mut updated_item)?;
-            
-            if let Some(index) = self.database.items.iter().position(|item| item.get_id() == item_id) {
+
+            if let Some(index) = self
+                .database
+                .items
+                .iter()
+                .position(|item| item.get_id() == item_id)
+            {
                 self.database.items[index] = updated_item;
                 self.database.updated_at = Utc::now();
                 Ok(())
@@ -154,7 +254,8 @@ impl DatabaseManager {
     /// Search items by name
     pub fn search_items(&self, query: &str) -> Vec<&Item> {
         let query_lower = query.to_lowercase();
-        self.database.items
+        self.database
+            .items
             .iter()
             .filter(|item| {
                 let name = item.get_name().to_lowercase();
@@ -165,15 +266,19 @@ impl DatabaseManager {
 
     /// Get items by type
     pub fn get_items_by_type(&self, item_type: &crate::models::ItemType) -> Vec<&Item> {
-        self.database.items
+        self.database
+            .items
             .iter()
-            .filter(|item| std::mem::discriminant(item.get_type()) == std::mem::discriminant(item_type))
+            .filter(|item| {
+                std::mem::discriminant(item.get_type()) == std::mem::discriminant(item_type)
+            })
             .collect()
     }
 
     /// Get items in folder
     pub fn get_items_in_folder(&self, folder_id: Uuid) -> Vec<&Item> {
-        self.database.items
+        self.database
+            .items
             .iter()
             .filter(|item| {
                 if let Some(id) = item.get_base().folder_id {
@@ -193,7 +298,7 @@ impl DatabaseManager {
                     return Ok(false);
                 }
             }
-            
+
             // Verify overall integrity hash
             let calculated_hash = ctx.calculate_integrity_hash(&self.database.items)?;
             Ok(calculated_hash == self.database.integrity_hash)
@@ -232,10 +337,9 @@ impl DatabaseManager {
     pub fn export_to_json(&self, file_path: &str) -> Result<()> {
         let json_data = serde_json::to_string_pretty(&self.database)
             .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
-        
-        fs::write(file_path, json_data)
-            .map_err(|e| anyhow!("Failed to write JSON file: {}", e))?;
-        
+
+        fs::write(file_path, json_data).map_err(|e| anyhow!("Failed to write JSON file: {}", e))?;
+
         Ok(())
     }
 
@@ -243,10 +347,10 @@ impl DatabaseManager {
     pub fn import_from_json(&mut self, file_path: &str) -> Result<()> {
         let json_data = fs::read_to_string(file_path)
             .map_err(|e| anyhow!("Failed to read JSON file: {}", e))?;
-        
+
         let database: PasswordDatabase = serde_json::from_str(&json_data)
             .map_err(|e| anyhow!("Failed to deserialize JSON: {}", e))?;
-        
+
         self.database = database;
         Ok(())
     }
@@ -327,4 +431,4 @@ impl std::fmt::Display for DatabaseStatistics {
         write!(f, "  Notes: {}\n", self.notes)?;
         write!(f, "  Secure Notes: {}", self.secure_notes)
     }
-} 
+}

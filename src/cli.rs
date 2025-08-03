@@ -1,12 +1,139 @@
 use crate::database::DatabaseManager;
-use crate::models::{Item, ItemType, SecurityLevel, Credential, Folder, Key, Url, Note, SecureNote, BaseItem, KeyType, KeyUsage, NoteFormat};
-use clap::{Parser, Subcommand, Args};
-use dialoguer::{Input, Password, Select, Confirm};
-use console::{Term, style};
-use anyhow::{Result, anyhow};
+use crate::models::{
+    BaseItem, Credential, Folder, Item, ItemType, Key, KeyType, KeyUsage, Note, NoteFormat,
+    SecureNote, SecurityLevel, Url,
+};
+use anyhow::{anyhow, Result};
 use chrono::Utc;
-use uuid::Uuid;
+use clap::{Args, Parser, Subcommand};
+use console::{style, Term};
+use dialoguer::{Confirm, Input, Password};
+use std::io::{self, Write};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
+
+/// Simple progress bar for CLI
+pub struct CliProgressBar {
+    term: Term,
+    last_message: String,
+}
+
+impl CliProgressBar {
+    pub fn new() -> Self {
+        Self {
+            term: Term::stdout(),
+            last_message: String::new(),
+        }
+    }
+
+    pub fn update(&mut self, message: &str, progress: f32) {
+        // Clear the current line
+        self.term.clear_line().ok();
+
+        // Create progress bar
+        let bar_width = 40;
+        let filled = (progress * bar_width as f32) as usize;
+        let bar = format!(
+            "[{}{}] {:.1}% {}",
+            "█".repeat(filled),
+            "░".repeat(bar_width - filled),
+            progress * 100.0,
+            message
+        );
+
+        // Print progress
+        print!("{}", bar);
+        io::stdout().flush().ok();
+
+        self.last_message = message.to_string();
+    }
+
+    pub fn finish(&mut self, message: &str) {
+        self.term.clear_line().ok();
+        println!("✅ {}", message);
+    }
+}
+
+/// Demo function to show progress indicator in action
+pub fn demo_progress_indicator() {
+    use crate::crypto::{EncryptionContext, ProgressCallback};
+    use crate::hardware::HardwareAccelerator;
+    use std::sync::{Arc, Mutex};
+
+    println!("🔐 Password Manager Progress Indicator Demo");
+    println!("===========================================");
+
+    // Show hardware acceleration info
+    println!(
+        "\n🔧 Hardware Acceleration: {}",
+        if HardwareAccelerator::is_available() {
+            "✅ Available"
+        } else {
+            "❌ Not Available"
+        }
+    );
+    println!(
+        "📊 Capabilities: {}",
+        HardwareAccelerator::get_capabilities_info()
+    );
+    println!(
+        "🧵 Optimal Threads: {}",
+        HardwareAccelerator::optimal_thread_count()
+    );
+
+    let progress_bar = Arc::new(Mutex::new(CliProgressBar::new()));
+    let progress_bar_clone = progress_bar.clone();
+
+    let progress_callback: ProgressCallback =
+        Arc::new(Mutex::new(move |message: &str, progress: f32| {
+            if let Ok(mut bar) = progress_bar_clone.lock() {
+                bar.update(message, progress);
+            }
+        }));
+
+    // Create encryption context with progress
+    println!("\n📊 Creating encryption context with quantum security...");
+    let mut settings = crate::models::SecuritySettings::default();
+    settings.testing_mode = true; // Use testing mode for demo
+    settings.key_derivation_iterations = 1000; // Reduced for demo
+    settings.memory_cost = 1024; // Reduced for demo
+
+    let context = EncryptionContext::new_with_progress(
+        "demo_password",
+        SecurityLevel::Quantum,
+        settings,
+        Some(progress_callback.clone()),
+    )
+    .unwrap();
+
+    if let Ok(mut bar) = progress_bar.lock() {
+        bar.finish("Encryption context created successfully!");
+    }
+
+    // Test encryption with progress
+    println!("\n🔒 Encrypting test data with quantum security...");
+    let test_data =
+        b"This is a test message that will be encrypted with quantum-resistant encryption";
+    let encrypted = context.encrypt(test_data).unwrap();
+
+    if let Ok(mut bar) = progress_bar.lock() {
+        bar.finish("Encryption completed successfully!");
+    }
+
+    // Test decryption with progress
+    println!("\n🔓 Decrypting test data...");
+    let decrypted = context.decrypt(&encrypted).unwrap();
+
+    if let Ok(mut bar) = progress_bar.lock() {
+        bar.finish("Decryption completed successfully!");
+    }
+
+    // Verify the data
+    assert_eq!(test_data, decrypted.as_slice());
+    println!("\n✅ Data integrity verified - encryption/decryption working correctly!");
+    println!("\n🎉 Progress indicator demo completed successfully!");
+}
 
 #[derive(Parser)]
 #[command(name = "password_manager")]
@@ -50,6 +177,10 @@ pub enum Commands {
     Lock(LockArgs),
     /// Unlock the database
     Unlock(UnlockArgs),
+    /// Demo progress indicator
+    Demo,
+    /// Show hardware acceleration info
+    Hardware,
 }
 
 #[derive(Args)]
@@ -57,11 +188,11 @@ pub struct CreateArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Database name
     #[arg(short, long)]
     name: Option<String>,
-    
+
     /// Security level (standard, high, quantum)
     #[arg(short, long, default_value = "high")]
     security: Option<String>,
@@ -79,7 +210,7 @@ pub struct ListArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Filter by item type
     #[arg(short, long)]
     type_filter: Option<String>,
@@ -90,11 +221,11 @@ pub struct AddArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Item type (credential, folder, key, url, note, secure_note)
     #[arg(short, long)]
     item_type: String,
-    
+
     /// Item name
     #[arg(short, long)]
     name: String,
@@ -105,7 +236,7 @@ pub struct ShowArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Item ID
     #[arg(short, long)]
     id: String,
@@ -116,7 +247,7 @@ pub struct EditArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Item ID
     #[arg(short, long)]
     id: String,
@@ -127,7 +258,7 @@ pub struct RemoveArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Item ID
     #[arg(short, long)]
     id: String,
@@ -138,7 +269,7 @@ pub struct SearchArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Search query
     #[arg(short, long)]
     query: String,
@@ -149,19 +280,19 @@ pub struct GenerateArgs {
     /// Password length
     #[arg(long, default_value = "20")]
     length: u32,
-    
+
     /// Include uppercase letters
     #[arg(long, default_value = "true")]
     uppercase: bool,
-    
+
     /// Include lowercase letters
     #[arg(long, default_value = "true")]
     lowercase: bool,
-    
+
     /// Include numbers
     #[arg(long, default_value = "true")]
     numbers: bool,
-    
+
     /// Include symbols
     #[arg(long, default_value = "true")]
     symbols: bool,
@@ -186,7 +317,7 @@ pub struct ExportArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Output JSON file path
     #[arg(short, long)]
     output: String,
@@ -197,7 +328,7 @@ pub struct ImportArgs {
     /// Database file path
     #[arg(short, long)]
     file: String,
-    
+
     /// Input JSON file path
     #[arg(short, long)]
     input: String,
@@ -229,7 +360,7 @@ pub struct CliHandler;
 impl CliHandler {
     pub fn run() -> Result<()> {
         let cli = Cli::parse();
-        
+
         match cli.command {
             Commands::Create(args) => Self::handle_create(args),
             Commands::Open(args) => Self::handle_open(args),
@@ -247,67 +378,69 @@ impl CliHandler {
             Commands::ChangePassword(args) => Self::handle_change_password(args),
             Commands::Lock(args) => Self::handle_lock(args),
             Commands::Unlock(args) => Self::handle_unlock(args),
+            Commands::Demo => Self::handle_demo(),
+            Commands::Hardware => Self::handle_hardware(),
         }
     }
 
     fn handle_create(args: CreateArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let name = args.name.unwrap_or_else(|| {
             Input::<String>::new()
                 .with_prompt("Enter database name")
                 .interact()
                 .unwrap_or_else(|_| "My Passwords".to_string())
         });
-        
+
         let security_level = match args.security.as_deref() {
             Some("standard") => SecurityLevel::Standard,
             Some("high") => SecurityLevel::High,
             Some("quantum") => SecurityLevel::Quantum,
             _ => SecurityLevel::High,
         };
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .with_confirmation("Confirm master password", "Passwords don't match")
             .interact()?;
-        
+
         let mut manager = DatabaseManager::new(name, security_level)?;
         manager.save_to_file(&args.file, &master_password)?;
-        
+
         term.write_line(&style("Database created successfully!").green().to_string())?;
         Ok(())
     }
 
     fn handle_open(args: OpenArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         if !Path::new(&args.file).exists() {
             return Err(anyhow!("Database file does not exist"));
         }
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         term.write_line(&style("Database opened successfully!").green().to_string())?;
         term.write_line(&format!("Database: {}", manager.get_metadata().name))?;
         term.write_line(&format!("Items: {}", manager.database.items.len()))?;
-        
+
         Ok(())
     }
 
     fn handle_list(args: ListArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         let items = if let Some(type_filter) = args.type_filter {
             let item_type = match type_filter.as_str() {
                 "credential" => ItemType::Credential,
@@ -322,12 +455,12 @@ impl CliHandler {
         } else {
             manager.database.items.iter().collect()
         };
-        
+
         if items.is_empty() {
             term.write_line("No items found.")?;
             return Ok(());
         }
-        
+
         term.write_line(&style("Items:").bold().to_string())?;
         for item in items {
             let item_type = match item.get_type() {
@@ -338,26 +471,27 @@ impl CliHandler {
                 ItemType::Note => "Note",
                 ItemType::SecureNote => "Secure Note",
             };
-            
-            term.write_line(&format!("{} - {} ({})", 
-                item.get_id(), 
-                item.get_name(), 
+
+            term.write_line(&format!(
+                "{} - {} ({})",
+                item.get_id(),
+                item.get_name(),
                 item_type
             ))?;
         }
-        
+
         Ok(())
     }
 
     fn handle_add(args: AddArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         let item_type = match args.item_type.as_str() {
             "credential" => ItemType::Credential,
             "folder" => ItemType::Folder,
@@ -367,95 +501,96 @@ impl CliHandler {
             "secure_note" => ItemType::SecureNote,
             _ => return Err(anyhow!("Invalid item type")),
         };
-        
+
         let item = Self::create_item_interactive(&args.name, item_type)?;
         manager.add_item(item)?;
         manager.save_to_file(&args.file, &master_password)?;
-        
+
         term.write_line(&style("Item added successfully!").green().to_string())?;
         Ok(())
     }
 
     fn handle_show(args: ShowArgs) -> Result<()> {
-        let term = Term::stdout();
-        
+        let _term = Term::stdout();
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         let item_id = Uuid::parse_str(&args.id)?;
         if let Some(item) = manager.get_item(item_id) {
             Self::display_item(item)?;
         } else {
             return Err(anyhow!("Item not found"));
         }
-        
+
         Ok(())
     }
 
     fn handle_edit(args: EditArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         let item_id = Uuid::parse_str(&args.id)?;
         if let Some(item) = manager.get_item(item_id) {
             let updated_item = Self::edit_item_interactive(item)?;
             manager.update_item(item_id, updated_item)?;
             manager.save_to_file(&args.file, &master_password)?;
-            
+
             term.write_line(&style("Item updated successfully!").green().to_string())?;
         } else {
             return Err(anyhow!("Item not found"));
         }
-        
+
         Ok(())
     }
 
     fn handle_remove(args: RemoveArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         let item_id = Uuid::parse_str(&args.id)?;
-        
+
         if Confirm::new()
             .with_prompt("Are you sure you want to remove this item?")
-            .interact()? {
+            .interact()?
+        {
             manager.remove_item(item_id)?;
             manager.save_to_file(&args.file, &master_password)?;
             term.write_line(&style("Item removed successfully!").green().to_string())?;
         }
-        
+
         Ok(())
     }
 
     fn handle_search(args: SearchArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         let results = manager.search_items(&args.query);
-        
+
         if results.is_empty() {
             term.write_line("No items found.")?;
             return Ok(());
         }
-        
+
         term.write_line(&style("Search Results:").bold().to_string())?;
         for item in results {
             let item_type = match item.get_type() {
@@ -466,20 +601,21 @@ impl CliHandler {
                 ItemType::Note => "Note",
                 ItemType::SecureNote => "Secure Note",
             };
-            
-            term.write_line(&format!("{} - {} ({})", 
-                item.get_id(), 
-                item.get_name(), 
+
+            term.write_line(&format!(
+                "{} - {} ({})",
+                item.get_id(),
+                item.get_name(),
                 item_type
             ))?;
         }
-        
+
         Ok(())
     }
 
     fn handle_generate(args: GenerateArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let settings = crate::models::PasswordGeneratorSettings {
             length: args.length,
             use_uppercase: args.uppercase,
@@ -489,133 +625,182 @@ impl CliHandler {
             exclude_similar: true,
             exclude_ambiguous: false,
         };
-        
+
         let encryption_context = crate::crypto::EncryptionContext::new(
             "temp",
             SecurityLevel::Standard,
             crate::models::SecuritySettings::default(),
         )?;
-        
+
         let password = encryption_context.generate_password(&settings);
         term.write_line(&format!("Generated password: {}", password))?;
-        
+
         Ok(())
     }
 
     fn handle_stats(args: StatsArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         let stats = manager.get_statistics();
         term.write_line(&stats.to_string())?;
-        
+
         Ok(())
     }
 
     fn handle_verify(args: VerifyArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         if manager.verify_integrity()? {
-            term.write_line(&style("Database integrity verified successfully!").green().to_string())?;
+            term.write_line(
+                &style("Database integrity verified successfully!")
+                    .green()
+                    .to_string(),
+            )?;
         } else {
             term.write_line(&style("Database integrity check failed!").red().to_string())?;
         }
-        
+
         Ok(())
     }
 
     fn handle_export(args: ExportArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         manager.export_to_json(&args.output)?;
         term.write_line(&style("Database exported successfully!").green().to_string())?;
-        
+
         Ok(())
     }
 
     fn handle_import(args: ImportArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
-        
+
         manager.import_from_json(&args.input)?;
         manager.save_to_file(&args.file, &master_password)?;
-        
+
         term.write_line(&style("Database imported successfully!").green().to_string())?;
-        
+
         Ok(())
     }
 
     fn handle_change_password(args: ChangePasswordArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let old_password = Password::new()
             .with_prompt("Enter current master password")
             .interact()?;
-        
+
         let new_password = Password::new()
             .with_prompt("Enter new master password")
             .with_confirmation("Confirm new master password", "Passwords don't match")
             .interact()?;
-        
+
         let mut manager = DatabaseManager::load_from_file(&args.file, &old_password)?;
         manager.change_master_password(&new_password)?;
         manager.save_to_file(&args.file, &new_password)?;
-        
-        term.write_line(&style("Master password changed successfully!").green().to_string())?;
-        
+
+        term.write_line(
+            &style("Master password changed successfully!")
+                .green()
+                .to_string(),
+        )?;
+
         Ok(())
     }
 
     fn handle_lock(args: LockArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
         manager.lock();
         manager.save_to_file(&args.file, &master_password)?;
-        
+
         term.write_line(&style("Database locked successfully!").green().to_string())?;
-        
+
         Ok(())
     }
 
     fn handle_unlock(args: UnlockArgs) -> Result<()> {
         let term = Term::stdout();
-        
+
         let master_password = Password::new()
             .with_prompt("Enter master password")
             .interact()?;
-        
+
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
         manager.unlock(&master_password)?;
-        
+
         term.write_line(&style("Database unlocked successfully!").green().to_string())?;
-        
+
+        Ok(())
+    }
+
+    fn handle_demo() -> Result<()> {
+        demo_progress_indicator();
+        Ok(())
+    }
+
+    fn handle_hardware() -> Result<()> {
+        use crate::hardware::HardwareAccelerator;
+
+        println!("🔧 Hardware Acceleration Information");
+        println!("===================================");
+        println!();
+
+        let capabilities = HardwareAccelerator::get_capabilities_info();
+        let is_available = HardwareAccelerator::is_available();
+        let optimal_threads = HardwareAccelerator::optimal_thread_count();
+
+        println!("📊 Capabilities: {}", capabilities);
+        println!(
+            "⚡ Hardware Acceleration: {}",
+            if is_available {
+                "✅ Available"
+            } else {
+                "❌ Not Available"
+            }
+        );
+        println!("🧵 Optimal Thread Count: {}", optimal_threads);
+        println!();
+
+        if is_available {
+            println!("🚀 Hardware acceleration will be used for encryption/decryption operations.");
+            println!(
+                "   This provides significant performance improvements on supported hardware."
+            );
+        } else {
+            println!("⚠️  No hardware acceleration detected. Using software implementations.");
+            println!("   Performance may be slower on this system.");
+        }
+
         Ok(())
     }
 
@@ -634,24 +819,20 @@ impl CliHandler {
 
         match item_type {
             ItemType::Credential => {
-                let username = Input::<String>::new()
-                    .with_prompt("Username")
-                    .interact()?;
-                
-                let password = Password::new()
-                    .with_prompt("Password")
-                    .interact()?;
-                
+                let username = Input::<String>::new().with_prompt("Username").interact()?;
+
+                let password = Password::new().with_prompt("Password").interact()?;
+
                 let url = Input::<String>::new()
                     .with_prompt("URL (optional)")
                     .allow_empty(true)
                     .interact()?;
-                
+
                 let notes = Input::<String>::new()
                     .with_prompt("Notes (optional)")
                     .allow_empty(true)
                     .interact()?;
-                
+
                 let credential = Credential {
                     base,
                     username,
@@ -662,7 +843,7 @@ impl CliHandler {
                     last_used: None,
                     password_history: Vec::new(),
                 };
-                
+
                 Ok(Item::Credential(credential))
             }
             ItemType::Folder => {
@@ -670,20 +851,24 @@ impl CliHandler {
                     .with_prompt("Description (optional)")
                     .allow_empty(true)
                     .interact()?;
-                
+
                 let folder = Folder {
                     base,
-                    description: if description.is_empty() { None } else { Some(description) },
+                    description: if description.is_empty() {
+                        None
+                    } else {
+                        Some(description)
+                    },
                     color: None,
                 };
-                
+
                 Ok(Item::Folder(folder))
             }
             ItemType::Key => {
                 let key_data = Password::new()
                     .with_prompt("Key data (base64)")
                     .interact()?;
-                
+
                 let key = Key {
                     base,
                     key_type: KeyType::Symmetric,
@@ -692,19 +877,17 @@ impl CliHandler {
                     key_size: 256,
                     usage: vec![KeyUsage::Encryption, KeyUsage::Decryption],
                 };
-                
+
                 Ok(Item::Key(key))
             }
             ItemType::Url => {
-                let url = Input::<String>::new()
-                    .with_prompt("URL")
-                    .interact()?;
-                
+                let url = Input::<String>::new().with_prompt("URL").interact()?;
+
                 let title = Input::<String>::new()
                     .with_prompt("Title (optional)")
                     .allow_empty(true)
                     .interact()?;
-                
+
                 let url_item = Url {
                     base,
                     url,
@@ -712,35 +895,35 @@ impl CliHandler {
                     favicon: None,
                     notes: None,
                 };
-                
+
                 Ok(Item::Url(url_item))
             }
             ItemType::Note => {
                 let content = Input::<String>::new()
                     .with_prompt("Note content")
                     .interact()?;
-                
+
                 let note = Note {
                     base,
                     content,
                     is_encrypted: false,
                     format: NoteFormat::PlainText,
                 };
-                
+
                 Ok(Item::Note(note))
             }
             ItemType::SecureNote => {
                 let content = Password::new()
                     .with_prompt("Secure note content")
                     .interact()?;
-                
+
                 let secure_note = SecureNote {
                     base,
                     encrypted_content: content,
                     content_type: "text/plain".to_string(),
                     additional_metadata: std::collections::HashMap::new(),
                 };
-                
+
                 Ok(Item::SecureNote(secure_note))
             }
         }
@@ -754,13 +937,13 @@ impl CliHandler {
 
     fn display_item(item: &Item) -> Result<()> {
         let term = Term::stdout();
-        
+
         term.write_line(&format!("ID: {}", item.get_id()))?;
         term.write_line(&format!("Name: {}", item.get_name()))?;
         term.write_line(&format!("Type: {:?}", item.get_type()))?;
         term.write_line(&format!("Created: {}", item.get_base().created_at))?;
         term.write_line(&format!("Updated: {}", item.get_base().updated_at))?;
-        
+
         match item {
             Item::Credential(c) => {
                 term.write_line(&format!("Username: {}", c.username))?;
@@ -795,10 +978,13 @@ impl CliHandler {
             }
             Item::SecureNote(s) => {
                 term.write_line(&format!("Content Type: {}", s.content_type))?;
-                term.write_line(&format!("Content: {}", "*".repeat(s.encrypted_content.len())))?;
+                term.write_line(&format!(
+                    "Content: {}",
+                    "*".repeat(s.encrypted_content.len())
+                ))?;
             }
         }
-        
+
         Ok(())
     }
-} 
+}

@@ -1,14 +1,14 @@
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Security level configuration for encryption
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SecurityLevel {
-    Standard,    // AES-256-GCM
-    High,        // AES-256-GCM + ChaCha20-Poly1305
-    Quantum,     // AES-256-GCM + ChaCha20-Poly1305 + additional rounds
+    Standard, // AES-256-GCM
+    High,     // AES-256-GCM + ChaCha20-Poly1305
+    Quantum,  // AES-256-GCM + ChaCha20-Poly1305 + additional rounds
 }
 
 impl Default for SecurityLevel {
@@ -235,6 +235,7 @@ pub struct SecuritySettings {
     pub salt_length: usize,
     pub iv_length: usize,
     pub tag_length: usize,
+    pub testing_mode: bool,
 }
 
 impl Default for SecuritySettings {
@@ -246,6 +247,7 @@ impl Default for SecuritySettings {
             salt_length: 32,
             iv_length: 12,
             tag_length: 16,
+            testing_mode: false,
         }
     }
 }
@@ -272,4 +274,4 @@ impl Default for DatabaseSettings {
             security_settings: SecuritySettings::default(),
         }
     }
-} 
+}
