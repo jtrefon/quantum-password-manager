@@ -4,17 +4,12 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Security level configuration for encryption
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum SecurityLevel {
     Standard, // AES-256-GCM
+    #[default]
     High,     // AES-256-GCM + ChaCha20-Poly1305
     Quantum,  // AES-256-GCM + ChaCha20-Poly1305 + additional rounds
-}
-
-impl Default for SecurityLevel {
-    fn default() -> Self {
-        SecurityLevel::High
-    }
 }
 
 /// Types of items that can be stored

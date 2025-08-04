@@ -12,7 +12,7 @@ use anyhow::Result;
 fn main() -> Result<()> {
     // Set up error handling
     std::panic::set_hook(Box::new(|panic_info| {
-        eprintln!("Fatal error: {}", panic_info);
+        eprintln!("Fatal error: {panic_info}");
         std::process::exit(1);
     }));
 

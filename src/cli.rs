@@ -10,7 +10,6 @@ use console::{style, Term};
 use dialoguer::{Confirm, Input, Password};
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 /// Simple progress bar for CLI
@@ -43,7 +42,7 @@ impl CliProgressBar {
         );
 
         // Print progress
-        print!("{}", bar);
+        print!("{bar}");
         io::stdout().flush().ok();
 
         self.last_message = message.to_string();
@@ -51,7 +50,7 @@ impl CliProgressBar {
 
     pub fn finish(&mut self, message: &str) {
         self.term.clear_line().ok();
-        println!("✅ {}", message);
+        println!("✅ {message}");
     }
 }
 
@@ -94,10 +93,12 @@ pub fn demo_progress_indicator() {
 
     // Create encryption context with progress
     println!("\n📊 Creating encryption context with quantum security...");
-    let mut settings = crate::models::SecuritySettings::default();
-    settings.testing_mode = true; // Use testing mode for demo
-    settings.key_derivation_iterations = 1000; // Reduced for demo
-    settings.memory_cost = 1024; // Reduced for demo
+    let settings = crate::models::SecuritySettings {
+        testing_mode: true, // Use testing mode for demo
+        key_derivation_iterations: 1000, // Reduced for demo
+        memory_cost: 1024, // Reduced for demo
+        ..Default::default()
+    };
 
     let context = EncryptionContext::new_with_progress(
         "demo_password",
@@ -633,7 +634,7 @@ impl CliHandler {
         )?;
 
         let password = encryption_context.generate_password(&settings);
-        term.write_line(&format!("Generated password: {}", password))?;
+        term.write_line(&format!("Generated password: {password}"))?;
 
         Ok(())
     }
@@ -779,7 +780,7 @@ impl CliHandler {
         let is_available = HardwareAccelerator::is_available();
         let optimal_threads = HardwareAccelerator::optimal_thread_count();
 
-        println!("📊 Capabilities: {}", capabilities);
+        println!("📊 Capabilities: {capabilities}");
         println!(
             "⚡ Hardware Acceleration: {}",
             if is_available {
@@ -788,7 +789,7 @@ impl CliHandler {
                 "❌ Not Available"
             }
         );
-        println!("🧵 Optimal Thread Count: {}", optimal_threads);
+        println!("🧵 Optimal Thread Count: {optimal_threads}");
         println!();
 
         if is_available {
@@ -949,15 +950,15 @@ impl CliHandler {
                 term.write_line(&format!("Username: {}", c.username))?;
                 term.write_line(&format!("Password: {}", "*".repeat(c.password.len())))?;
                 if let Some(url) = &c.url {
-                    term.write_line(&format!("URL: {}", url))?;
+                    term.write_line(&format!("URL: {url}"))?;
                 }
                 if let Some(notes) = &c.notes {
-                    term.write_line(&format!("Notes: {}", notes))?;
+                    term.write_line(&format!("Notes: {notes}"))?;
                 }
             }
             Item::Folder(f) => {
                 if let Some(desc) = &f.description {
-                    term.write_line(&format!("Description: {}", desc))?;
+                    term.write_line(&format!("Description: {desc}"))?;
                 }
             }
             Item::Key(k) => {
@@ -968,7 +969,7 @@ impl CliHandler {
             Item::Url(u) => {
                 term.write_line(&format!("URL: {}", u.url))?;
                 if let Some(title) = &u.title {
-                    term.write_line(&format!("Title: {}", title))?;
+                    term.write_line(&format!("Title: {title}"))?;
                 }
             }
             Item::Note(n) => {

@@ -2,7 +2,6 @@ use crate::crypto::{EncryptionContext, ProgressCallback};
 use crate::models::{DatabaseSettings, Item, PasswordDatabase, SecurityLevel, SecuritySettings};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use serde_json;
 use std::fs;
 use uuid::Uuid;
 
@@ -74,7 +73,7 @@ impl DatabaseManager {
             if let Some(callback) = &progress_callback {
                 if let Ok(callback) = callback.lock() {
                     callback(
-                        &format!("Trying security level {:?}", security_level),
+                        &format!("Trying security level {security_level:?}"),
                         (i as f32) / 3.0,
                     );
                 }
@@ -221,6 +220,7 @@ impl DatabaseManager {
     }
 
     /// Get item by ID (mutable)
+    #[allow(dead_code)]
     pub fn get_item_mut(&mut self, item_id: Uuid) -> Option<&mut Item> {
         self.database
             .items
@@ -276,6 +276,7 @@ impl DatabaseManager {
     }
 
     /// Get items in folder
+    #[allow(dead_code)]
     pub fn get_items_in_folder(&self, folder_id: Uuid) -> Vec<&Item> {
         self.database
             .items
@@ -380,6 +381,7 @@ impl DatabaseManager {
     }
 
     /// Update database metadata
+    #[allow(dead_code)]
     pub fn update_metadata(&mut self, metadata: crate::models::DatabaseMetadata) -> Result<()> {
         self.database.metadata = metadata;
         self.database.updated_at = Utc::now();
@@ -387,6 +389,7 @@ impl DatabaseManager {
     }
 
     /// Check if database is locked
+    #[allow(dead_code)]
     pub fn is_locked(&self) -> bool {
         self.encryption_context.is_none()
     }
@@ -422,13 +425,13 @@ pub struct DatabaseStatistics {
 
 impl std::fmt::Display for DatabaseStatistics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Database Statistics:\n")?;
-        write!(f, "  Total Items: {}\n", self.total_items)?;
-        write!(f, "  Credentials: {}\n", self.credentials)?;
-        write!(f, "  Folders: {}\n", self.folders)?;
-        write!(f, "  Keys: {}\n", self.keys)?;
-        write!(f, "  URLs: {}\n", self.urls)?;
-        write!(f, "  Notes: {}\n", self.notes)?;
+        writeln!(f, "Database Statistics:")?;
+        writeln!(f, "  Total Items: {}", self.total_items)?;
+        writeln!(f, "  Credentials: {}", self.credentials)?;
+        writeln!(f, "  Folders: {}", self.folders)?;
+        writeln!(f, "  Keys: {}", self.keys)?;
+        writeln!(f, "  URLs: {}", self.urls)?;
+        writeln!(f, "  Notes: {}", self.notes)?;
         write!(f, "  Secure Notes: {}", self.secure_notes)
     }
 }

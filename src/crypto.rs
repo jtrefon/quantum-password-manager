@@ -56,6 +56,7 @@ impl ProgressIndicator {
         }
     }
 
+    #[allow(dead_code)]
     pub fn increment(&mut self, message: &str) {
         self.current_step += 1;
         self.update(self.current_step, message);
@@ -68,6 +69,7 @@ static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 /// Encryption context with all necessary keys and parameters
 #[derive(Clone)]
 pub struct EncryptionContext {
+    #[allow(dead_code)]
     pub master_key: Vec<u8>,
     pub salt: Vec<u8>,
     pub iv: Vec<u8>,
@@ -194,7 +196,7 @@ impl EncryptionContext {
         let mut hasher = Sha256::new();
         hasher.update(master_key);
         hasher.update(purpose);
-        hasher.update(&settings.key_derivation_iterations.to_le_bytes());
+        hasher.update(settings.key_derivation_iterations.to_le_bytes());
 
         let mut key = vec![0u8; 32];
         let hash = hasher.finalize();
@@ -560,7 +562,7 @@ impl EncryptionContext {
 
         // Sort items by ID for consistent hashing
         let mut sorted_items = items.to_vec();
-        sorted_items.sort_by(|a, b| a.get_id().cmp(&b.get_id()));
+        sorted_items.sort_by_key(|a| a.get_id());
 
         for item in &sorted_items {
             // Hash item ID and type

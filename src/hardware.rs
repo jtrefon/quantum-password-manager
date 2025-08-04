@@ -96,15 +96,11 @@ impl HardwareCapabilities {
 
 /// Hardware-accelerated AES implementation
 #[derive(Clone)]
-pub struct HardwareAes {
-    capabilities: &'static HardwareCapabilities,
-}
+pub struct HardwareAes;
 
 impl HardwareAes {
     pub fn new() -> Self {
-        Self {
-            capabilities: HardwareCapabilities::get(),
-        }
+        Self
     }
 
     /// Encrypt data using hardware acceleration
@@ -164,6 +160,7 @@ impl HardwareAccelerator {
     }
 
     /// Create hardware-accelerated AES instance
+    #[allow(dead_code)]
     pub fn create_aes() -> HardwareAes {
         HardwareAes::new()
     }
