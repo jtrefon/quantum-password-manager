@@ -25,7 +25,6 @@ mod tests {
 
         assert_eq!(context.security_level, SecurityLevel::High);
         assert_eq!(context.salt.len(), 32);
-        assert_eq!(context.iv.len(), 12);
         assert!(!context.derived_keys.is_empty());
     }
 

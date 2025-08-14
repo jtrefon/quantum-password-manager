@@ -6,14 +6,14 @@ A quantum-resistant password manager written in Rust with ultra-strong encryptio
 
 ### Encryption Levels
 - **Standard**: AES-256-GCM encryption
-- **High**: AES-256-GCM + ChaCha20-Poly1305 double encryption
-- **Quantum**: Multi-layer encryption with additional quantum-resistant rounds
+- **High**: AES-256-GCM with stronger KDF parameters
+- **Quantum**: AES-256-GCM with quantum-safe profile (stronger KDF, SHA-3-based HMAC)
 
 ### Security Highlights
 - **Argon2id** key derivation with configurable parameters
 - **CRC32 + SHA256** integrity checking for individual items
 - **Database-wide integrity verification** with salted hashing
-- **Quantum-resistant encryption** with multiple layers
+- **Authenticated encryption** using AES-256-GCM
 - **Memory-hard key derivation** to resist hardware attacks
 - **Configurable security parameters** for different threat models
 
@@ -114,9 +114,9 @@ password_manager change-password --file passwords.db
 - Recommended for sensitive data
 
 #### Quantum Security
-- Multi-layer encryption with additional rounds
-- 500,000 Argon2id iterations
-- Maximum security for critical data
+- Single AEAD (AES-256-GCM)
+- Higher Argon2id parameters
+- SHA-3-based HMAC for integrity
 
 ## 🔧 Configuration
 
@@ -156,11 +156,11 @@ PasswordGeneratorSettings {
 4. **Integrity Checking** → CRC32 + SHA256 per item
 5. **Database Integrity** → Salted SHA256 for entire dataset
 
-### Quantum Resistance
-- **Multiple Encryption Layers**: Prevents quantum attacks on single algorithms
-- **Large Key Sizes**: 256-bit keys resist quantum brute force
-- **Memory-Hard Derivation**: Argon2id resists quantum memory attacks
-- **Authentication Tags**: Prevents quantum chosen-ciphertext attacks
+### Security Notes
+- **256-bit Keys**: Strong against brute force
+- **Argon2id**: Memory-hard derivation
+- **AEAD Tags**: Chosen-ciphertext protection
+- **SHA-3-based HMAC (Quantum profile)**: Modern hash for integrity
 
 ### Integrity Verification
 - **Per-Item Checksums**: CRC32 for fast integrity checking
@@ -171,10 +171,9 @@ PasswordGeneratorSettings {
 ## 📊 Database Structure
 
 ### File Format
-- **Encrypted JSON**: All data encrypted with master password
-- **Binary Format**: Optimized for size and performance
-- **Versioned**: Supports future format upgrades
-- **Backward Compatible**: Can read older database versions
+- **Header + Ciphertext**: `PMDB` magic + JSON header length + header + ciphertext
+- **Header includes**: Argon2 settings, salt, security level, algorithm id, HMAC over plaintext
+- **Versioned**: Header version for forward compatibility
 
 ### Data Organization
 ```
@@ -197,9 +196,8 @@ PasswordDatabase {
 - **Automatic Updates**: Checksums updated on every modification
 
 ### Database Integrity
-- **Sorted Hashing**: Consistent hash regardless of item order
-- **Salted Verification**: Prevents hash collision attacks
-- **Complete Verification**: All items verified on load
+- **HMAC-SHA256** over plaintext using a derived integrity key
+- **Per-item CRC32/SHA256** retained for quick checks
 
 ## 🚨 Security Considerations
 
@@ -236,9 +234,7 @@ cargo test --features performance-tests
 ## 📈 Performance
 
 ### Encryption Performance
-- **Standard**: ~1ms per item
-- **High**: ~2ms per item
-- **Quantum**: ~5ms per item
+- Dependent on hardware and KDF parameters
 
 ### Memory Usage
 - **Small Database**: <10MB memory

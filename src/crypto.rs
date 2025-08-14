@@ -1,19 +1,17 @@
-use crate::hardware::{HardwareAccelerator, HardwareAes};
+use crate::hardware::{HardwareAes, HardwareAccelerator};
 use crate::models::{SecurityLevel, SecuritySettings};
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use anyhow::{anyhow, Result};
-use argon2::{Argon2, PasswordHasher};
+use argon2::Argon2;
 use base64::{engine::general_purpose, Engine as _};
-use chacha20poly1305::aead::Aead as ChaChaAead;
-use chacha20poly1305::{ChaCha20Poly1305, KeyInit as ChaChaKeyInit, Nonce as ChaChaNonce};
 use crc::{Crc, CRC_32_ISO_HDLC};
+use hmac::{Hmac, Mac};
+use sha3::Sha3_256;
 use rand::{Rng, RngCore};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 /// Progress callback function type
 pub type ProgressCallback = Arc<Mutex<dyn Fn(&str, f32) + Send + Sync>>;
@@ -61,6 +59,10 @@ impl ProgressIndicator {
         self.current_step += 1;
         self.update(self.current_step, message);
     }
+
+    pub fn finish(&mut self, message: &str) {
+        self.update(self.total_steps, message);
+    }
 }
 
 /// CRC-32 calculator for integrity checking
@@ -72,11 +74,12 @@ pub struct EncryptionContext {
     #[allow(dead_code)]
     pub master_key: Vec<u8>,
     pub salt: Vec<u8>,
-    pub iv: Vec<u8>,
+    #[allow(dead_code)]
     pub security_level: SecurityLevel,
     pub settings: SecuritySettings,
     pub derived_keys: HashMap<String, Vec<u8>>,
     pub progress_callback: Option<ProgressCallback>,
+    #[allow(dead_code)]
     pub hardware_aes: HardwareAes,
 }
 
@@ -97,14 +100,25 @@ impl EncryptionContext {
         settings: SecuritySettings,
         progress_callback: Option<ProgressCallback>,
     ) -> Result<Self> {
-        let mut rng = rand::thread_rng();
-
-        // Generate salt and IV
         let mut salt = vec![0u8; settings.salt_length];
-        let mut iv = vec![0u8; settings.iv_length];
-        rng.fill_bytes(&mut salt);
-        rng.fill_bytes(&mut iv);
+        rand::thread_rng().fill_bytes(&mut salt);
+        Self::from_params_with_progress(
+            master_password,
+            security_level,
+            settings,
+            salt,
+            progress_callback,
+        )
+    }
 
+    /// Create new encryption context with provided salt and progress callback (used during load)
+    pub fn from_params_with_progress(
+        master_password: &str,
+        security_level: SecurityLevel,
+        settings: SecuritySettings,
+        salt: Vec<u8>,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Result<Self> {
         // Derive master key using Argon2
         let master_key = Self::derive_master_key(
             master_password,
@@ -120,22 +134,13 @@ impl EncryptionContext {
         let aes_key = Self::derive_key(&master_key, b"aes_key", &settings)?;
         derived_keys.insert("aes".to_string(), aes_key);
 
-        // Key for ChaCha20 encryption
-        let chacha_key = Self::derive_key(&master_key, b"chacha_key", &settings)?;
-        derived_keys.insert("chacha".to_string(), chacha_key);
-
-        // Key for integrity checking
+        // Key for integrity checking (HMAC)
         let integrity_key = Self::derive_key(&master_key, b"integrity_key", &settings)?;
         derived_keys.insert("integrity".to_string(), integrity_key);
-
-        // Key for additional quantum resistance layer
-        let quantum_key = Self::derive_key(&master_key, b"quantum_key", &settings)?;
-        derived_keys.insert("quantum".to_string(), quantum_key);
 
         Ok(Self {
             master_key,
             salt,
-            iv,
             security_level,
             settings,
             derived_keys,
@@ -151,20 +156,14 @@ impl EncryptionContext {
         settings: &SecuritySettings,
         progress_callback: Option<&ProgressCallback>,
     ) -> Result<Vec<u8>> {
-        let salt_string = argon2::password_hash::SaltString::encode_b64(salt)
-            .map_err(|e| anyhow!("Failed to encode salt: {}", e))?;
-
-        let argon2 = Argon2::new(
-            argon2::Algorithm::Argon2id,
-            argon2::Version::V0x13,
-            argon2::Params::new(
-                settings.memory_cost,
-                settings.key_derivation_iterations,
-                settings.parallelism,
-                Some(32), // 256-bit key
-            )
-            .map_err(|e| anyhow!("Failed to create Argon2 params: {}", e))?,
-        );
+        let params = argon2::Params::new(
+            settings.memory_cost,
+            settings.key_derivation_iterations,
+            settings.parallelism,
+            Some(32),
+        )
+        .map_err(|e| anyhow!("Failed to create Argon2 params: {}", e))?;
+        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
         // Report progress for key derivation
         if let Some(callback) = progress_callback {
@@ -173,9 +172,10 @@ impl EncryptionContext {
             }
         }
 
-        let hash = argon2
-            .hash_password(password.as_bytes(), &salt_string)
-            .map_err(|e| anyhow!("Failed to hash password: {}", e))?;
+        let mut output = vec![0u8; 32];
+        argon2
+            .hash_password_into(password.as_bytes(), salt, &mut output)
+            .map_err(|e| anyhow!("Failed to derive key: {}", e))?;
 
         // Report completion
         if let Some(callback) = progress_callback {
@@ -184,7 +184,7 @@ impl EncryptionContext {
             }
         }
 
-        Ok(hash.hash.unwrap().as_bytes().to_vec())
+        Ok(output)
     }
 
     /// Derive additional keys for different purposes
@@ -205,36 +205,31 @@ impl EncryptionContext {
         Ok(key)
     }
 
-    /// Encrypt data with ultra-strong encryption
+    /// Encrypt data (single AEAD under the hood)
     pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let mut progress = ProgressIndicator::new("Encryption", 3);
+        let mut progress = ProgressIndicator::new("Encryption", 2);
         if let Some(callback) = &self.progress_callback {
             progress = progress.with_callback(callback.clone());
         }
-
-        progress.update(1, "Starting encryption");
-
-        let result = match self.security_level {
-            SecurityLevel::Standard => {
-                progress.update(2, "Using standard AES-256-GCM encryption");
-                self.encrypt_standard(data)
+        // Announce hardware acceleration status via progress callback
+        if let Some(callback) = &self.progress_callback {
+            if let Ok(callback) = callback.lock() {
+                let accel = if HardwareAccelerator::is_available() {
+                    "available"
+                } else {
+                    "not available"
+                };
+                callback(&format!("Hardware acceleration is {accel}"), 0.0);
             }
-            SecurityLevel::High => {
-                progress.update(2, "Using high security (AES + ChaCha20) encryption");
-                self.encrypt_high(data)
-            }
-            SecurityLevel::Quantum => {
-                progress.update(2, "Using quantum-resistant encryption");
-                self.encrypt_quantum(data)
-            }
-        };
-
-        progress.update(3, "Encryption complete");
-        result
+        }
+        progress.update(1, "Encrypting with AES-256-GCM");
+        let result = self.encrypt_aes_gcm(data)?;
+        progress.finish("Encryption complete");
+        Ok(result)
     }
 
-    /// Standard encryption: AES-256-GCM
-    fn encrypt_standard(&self, data: &[u8]) -> Result<Vec<u8>> {
+    /// AES-256-GCM with fresh nonce per encryption. Output: nonce || ciphertext
+    fn encrypt_aes_gcm(&self, data: &[u8]) -> Result<Vec<u8>> {
         let aes_key = self
             .derived_keys
             .get("aes")
@@ -243,190 +238,48 @@ impl EncryptionContext {
         let cipher = Aes256Gcm::new_from_slice(aes_key)
             .map_err(|e| anyhow!("Failed to create AES cipher: {}", e))?;
 
-        let nonce = Nonce::from_slice(&self.iv);
+        // Generate fresh nonce per message
+        let mut nonce_bytes = vec![0u8; self.settings.iv_length];
+        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
 
         let encrypted = cipher
             .encrypt(nonce, data)
             .map_err(|e| anyhow!("Failed to encrypt data: {}", e))?;
 
-        // Combine IV + encrypted data
+        // Combine Nonce + encrypted data
         let mut result = Vec::new();
-        result.extend_from_slice(&self.iv);
+        result.extend_from_slice(&nonce_bytes);
         result.extend_from_slice(&encrypted);
 
         Ok(result)
     }
 
-    /// High security: AES-256-GCM + ChaCha20-Poly1305
-    fn encrypt_high(&self, data: &[u8]) -> Result<Vec<u8>> {
-        // First layer: AES-256-GCM
-        let aes_encrypted = self.encrypt_standard(data)?;
-
-        // Second layer: ChaCha20-Poly1305
-        let chacha_key = self
-            .derived_keys
-            .get("chacha")
-            .ok_or_else(|| anyhow!("ChaCha key not found"))?;
-
-        let cipher = ChaCha20Poly1305::new_from_slice(chacha_key)
-            .map_err(|e| anyhow!("Failed to create ChaCha cipher: {}", e))?;
-
-        let nonce = ChaChaNonce::try_from(&self.iv[..])
-            .map_err(|e| anyhow!("Failed to create ChaCha nonce: {}", e))?;
-
-        let double_encrypted = cipher
-            .encrypt(&nonce, &*aes_encrypted)
-            .map_err(|e| anyhow!("Failed to encrypt with ChaCha: {}", e))?;
-
-        // Combine IV + double encrypted data
-        let mut result = Vec::new();
-        result.extend_from_slice(&self.iv);
-        result.extend_from_slice(&double_encrypted);
-
-        Ok(result)
-    }
-
-    /// Quantum-resistant encryption: Multiple layers with additional security
-    fn encrypt_quantum(&self, data: &[u8]) -> Result<Vec<u8>> {
-        // First layer: AES-256-GCM
-        let aes_encrypted = self.encrypt_standard(data)?;
-
-        // Second layer: ChaCha20-Poly1305 on top of AES
-        let chacha_key = self
-            .derived_keys
-            .get("chacha")
-            .ok_or_else(|| anyhow!("ChaCha key not found"))?;
-
-        let cipher = ChaCha20Poly1305::new_from_slice(chacha_key)
-            .map_err(|e| anyhow!("Failed to create ChaCha cipher: {}", e))?;
-
-        let nonce = ChaChaNonce::try_from(&self.iv[..])
-            .map_err(|e| anyhow!("Failed to create ChaCha nonce: {}", e))?;
-
-        let chacha_encrypted = cipher
-            .encrypt(&nonce, &*aes_encrypted)
-            .map_err(|e| anyhow!("Failed to encrypt with ChaCha: {}", e))?;
-
-        // Third layer: Additional quantum-resistant layer with parallel processing
-        let quantum_key = self
-            .derived_keys
-            .get("quantum")
-            .ok_or_else(|| anyhow!("Quantum key not found"))?;
-
-        // Report progress for quantum rounds
-        if let Some(callback) = &self.progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Applying quantum-resistant encryption rounds", 0.0);
-            }
-        }
-
-        // Use parallel processing for quantum rounds with hardware acceleration
-        let num_rounds = if self.settings.testing_mode { 1 } else { 3 };
-        let num_threads = HardwareAccelerator::optimal_thread_count().min(num_rounds as usize);
-
-        let rounds_per_thread = num_rounds / num_threads as u32;
-        let remaining_rounds = num_rounds % num_threads as u32;
-
-        let mut quantum_encrypted = chacha_encrypted;
-        let progress_counter = Arc::new(AtomicU32::new(0));
-
-        // Process rounds in parallel
-        for thread_id in 0..num_threads {
-            let start_round = thread_id as u32 * rounds_per_thread;
-            let end_round = if thread_id == num_threads - 1 {
-                start_round + rounds_per_thread + remaining_rounds
-            } else {
-                start_round + rounds_per_thread
-            };
-
-            let thread_quantum_key = quantum_key.clone();
-            let thread_settings = self.settings.clone();
-            let thread_iv = self.iv.clone();
-            let thread_progress_callback = self.progress_callback.clone();
-            let thread_progress_counter = progress_counter.clone();
-            let thread_data = quantum_encrypted.clone();
-            let thread_hardware_aes = HardwareAes::new();
-
-            let handle = thread::spawn(move || {
-                let mut thread_encrypted = thread_data;
-
-                for round in start_round..end_round {
-                    // Report progress
-                    if let Some(callback) = &thread_progress_callback {
-                        if let Ok(callback) = callback.lock() {
-                            let current_progress = thread_progress_counter.load(Ordering::Relaxed);
-                            callback(
-                                &format!(
-                                    "Quantum encryption round {}/{}",
-                                    current_progress + 1,
-                                    num_rounds
-                                ),
-                                (current_progress as f32) / (num_rounds as f32),
-                            );
-                        }
-                    }
-
-                    let round_key = Self::derive_key(
-                        &thread_quantum_key,
-                        &round.to_le_bytes(),
-                        &thread_settings,
-                    )
-                    .map_err(|e| anyhow!("Failed to derive round key: {}", e))?;
-
-                    // Use hardware-accelerated AES for quantum rounds
-                    thread_encrypted = thread_hardware_aes
-                        .encrypt(&round_key, &thread_iv, &thread_encrypted)
-                        .map_err(|e| anyhow!("Failed to encrypt round {}: {}", round, e))?;
-
-                    thread_progress_counter.fetch_add(1, Ordering::Relaxed);
-                }
-
-                Ok::<Vec<u8>, anyhow::Error>(thread_encrypted)
-            });
-
-            quantum_encrypted = handle
-                .join()
-                .map_err(|_| anyhow!("Thread execution failed"))??;
-        }
-
-        // Combine all layers
-        let mut result = Vec::new();
-        result.extend_from_slice(&self.iv);
-        result.extend_from_slice(&quantum_encrypted);
-
-        Ok(result)
-    }
-
-    /// Decrypt data
+    /// Decrypt data (single AEAD under the hood)
     pub fn decrypt(&self, encrypted_data: &[u8]) -> Result<Vec<u8>> {
-        let mut progress = ProgressIndicator::new("Decryption", 3);
+        let mut progress = ProgressIndicator::new("Decryption", 2);
         if let Some(callback) = &self.progress_callback {
             progress = progress.with_callback(callback.clone());
         }
-
-        progress.update(1, "Starting decryption");
-
-        let result = match self.security_level {
-            SecurityLevel::Standard => {
-                progress.update(2, "Using standard AES-256-GCM decryption");
-                self.decrypt_standard(encrypted_data)
+        // Announce hardware acceleration status via progress callback
+        if let Some(callback) = &self.progress_callback {
+            if let Ok(callback) = callback.lock() {
+                let accel = if HardwareAccelerator::is_available() {
+                    "available"
+                } else {
+                    "not available"
+                };
+                callback(&format!("Hardware acceleration is {accel}"), 0.0);
             }
-            SecurityLevel::High => {
-                progress.update(2, "Using high security (AES + ChaCha20) decryption");
-                self.decrypt_high(encrypted_data)
-            }
-            SecurityLevel::Quantum => {
-                progress.update(2, "Using quantum-resistant decryption");
-                self.decrypt_quantum(encrypted_data)
-            }
-        };
-
-        progress.update(3, "Decryption complete");
-        result
+        }
+        progress.update(1, "Decrypting with AES-256-GCM");
+        let result = self.decrypt_aes_gcm(encrypted_data)?;
+        progress.finish("Decryption complete");
+        Ok(result)
     }
 
-    /// Decrypt standard encryption
-    fn decrypt_standard(&self, encrypted_data: &[u8]) -> Result<Vec<u8>> {
+    /// Decrypt Nonce || ciphertext
+    fn decrypt_aes_gcm(&self, encrypted_data: &[u8]) -> Result<Vec<u8>> {
         if encrypted_data.len() < self.settings.iv_length {
             return Err(anyhow!("Encrypted data too short"));
         }
@@ -450,100 +303,6 @@ impl EncryptionContext {
         Ok(decrypted)
     }
 
-    /// Decrypt high security encryption
-    fn decrypt_high(&self, encrypted_data: &[u8]) -> Result<Vec<u8>> {
-        if encrypted_data.len() < self.settings.iv_length {
-            return Err(anyhow!("Encrypted data too short"));
-        }
-
-        let (iv_data, cipher_data) = encrypted_data.split_at(self.settings.iv_length);
-
-        // Decrypt ChaCha20 layer
-        let chacha_key = self
-            .derived_keys
-            .get("chacha")
-            .ok_or_else(|| anyhow!("ChaCha key not found"))?;
-
-        let cipher = ChaCha20Poly1305::new_from_slice(chacha_key)
-            .map_err(|e| anyhow!("Failed to create ChaCha cipher: {}", e))?;
-
-        let nonce = ChaChaNonce::try_from(iv_data)
-            .map_err(|e| anyhow!("Failed to create ChaCha nonce: {}", e))?;
-
-        let chacha_decrypted = cipher
-            .decrypt(&nonce, cipher_data)
-            .map_err(|e| anyhow!("Failed to decrypt ChaCha layer: {}", e))?;
-
-        // Decrypt AES layer
-        self.decrypt_standard(&chacha_decrypted)
-    }
-
-    /// Decrypt quantum-resistant encryption
-    fn decrypt_quantum(&self, encrypted_data: &[u8]) -> Result<Vec<u8>> {
-        if encrypted_data.len() < self.settings.iv_length {
-            return Err(anyhow!("Encrypted data too short"));
-        }
-
-        let (iv_data, cipher_data) = encrypted_data.split_at(self.settings.iv_length);
-
-        // Decrypt quantum layer (reverse of encryption)
-        let quantum_key = self
-            .derived_keys
-            .get("quantum")
-            .ok_or_else(|| anyhow!("Quantum key not found"))?;
-
-        let mut quantum_decrypted = cipher_data.to_vec();
-
-        // Report progress for quantum decryption rounds
-        if let Some(callback) = &self.progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Applying quantum-resistant decryption rounds", 0.0);
-            }
-        }
-
-        // Use sequential processing for quantum decryption (simpler and safer)
-        let num_rounds = if self.settings.testing_mode { 1 } else { 3 };
-
-        // Multiple rounds in reverse order
-        for (i, round) in (0u32..num_rounds).rev().enumerate() {
-            if let Some(callback) = &self.progress_callback {
-                if let Ok(callback) = callback.lock() {
-                    callback(
-                        &format!("Quantum decryption round {}/{}", i + 1, num_rounds),
-                        (i as f32) / (num_rounds as f32),
-                    );
-                }
-            }
-
-            let round_key = Self::derive_key(quantum_key, &round.to_le_bytes(), &self.settings)?;
-
-            // Use hardware-accelerated AES for quantum decryption
-            quantum_decrypted = self
-                .hardware_aes
-                .decrypt(&round_key, iv_data, &quantum_decrypted)
-                .map_err(|e| anyhow!("Failed to decrypt round {}: {}", round, e))?;
-        }
-
-        // Decrypt ChaCha20 layer
-        let chacha_key = self
-            .derived_keys
-            .get("chacha")
-            .ok_or_else(|| anyhow!("ChaCha key not found"))?;
-
-        let cipher = ChaCha20Poly1305::new_from_slice(chacha_key)
-            .map_err(|e| anyhow!("Failed to create ChaCha cipher: {}", e))?;
-
-        let nonce = ChaChaNonce::try_from(iv_data)
-            .map_err(|e| anyhow!("Failed to create ChaCha nonce: {}", e))?;
-
-        let chacha_decrypted = cipher
-            .decrypt(&nonce, &*quantum_decrypted)
-            .map_err(|e| anyhow!("Failed to decrypt ChaCha layer: {}", e))?;
-
-        // Decrypt AES layer
-        self.decrypt_standard(&chacha_decrypted)
-    }
-
     /// Calculate CRC32 checksum
     pub fn calculate_crc32(&self, data: &[u8]) -> u32 {
         CRC32.checksum(data)
@@ -557,6 +316,7 @@ impl EncryptionContext {
     }
 
     /// Calculate integrity hash for entire dataset
+    #[allow(dead_code)]
     pub fn calculate_integrity_hash(&self, items: &[crate::models::Item]) -> Result<String> {
         let mut hasher = Sha256::new();
 
@@ -579,6 +339,44 @@ impl EncryptionContext {
         hasher.update(&self.salt);
 
         Ok(general_purpose::STANDARD.encode(hasher.finalize()))
+    }
+
+    /// Compute HMAC using the integrity key
+    pub fn compute_hmac(&self, data: &[u8]) -> Result<Vec<u8>> {
+        let key = self
+            .derived_keys
+            .get("integrity")
+            .ok_or_else(|| anyhow!("Integrity key not found"))?;
+        if matches!(self.security_level, SecurityLevel::Quantum) {
+            let mut mac = <Hmac<Sha3_256> as hmac::Mac>::new_from_slice(key)
+                .map_err(|e| anyhow!("Failed to create HMAC: {}", e))?;
+            mac.update(data);
+            Ok(mac.finalize().into_bytes().to_vec())
+        } else {
+            let mut mac = <Hmac<Sha256> as hmac::Mac>::new_from_slice(key)
+                .map_err(|e| anyhow!("Failed to create HMAC: {}", e))?;
+            mac.update(data);
+            Ok(mac.finalize().into_bytes().to_vec())
+        }
+    }
+
+    /// Verify HMAC
+    pub fn verify_hmac(&self, data: &[u8], expected: &[u8]) -> Result<bool> {
+        let key = self
+            .derived_keys
+            .get("integrity")
+            .ok_or_else(|| anyhow!("Integrity key not found"))?;
+        if matches!(self.security_level, SecurityLevel::Quantum) {
+            let mut mac = <Hmac<Sha3_256> as hmac::Mac>::new_from_slice(key)
+                .map_err(|e| anyhow!("Failed to create HMAC: {}", e))?;
+            mac.update(data);
+            Ok(mac.verify_slice(expected).is_ok())
+        } else {
+            let mut mac = <Hmac<Sha256> as hmac::Mac>::new_from_slice(key)
+                .map_err(|e| anyhow!("Failed to create HMAC: {}", e))?;
+            mac.update(data);
+            Ok(mac.verify_slice(expected).is_ok())
+        }
     }
 
     /// Verify integrity of an item

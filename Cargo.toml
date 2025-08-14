@@ -8,14 +8,12 @@ description = "Ultra-secure password manager with quantum-resistant encryption"
 [dependencies]
 # Core encryption and cryptography
 aes-gcm = "0.10.3"
-chacha20poly1305 = "0.11.0-rc.0"
 argon2 = "0.5.2"
 rand = "0.8.5"
 getrandom = "0.2.10"
+hmac = "0.12"
 
-# Hardware acceleration
-aes = "0.8.3"
-aes-soft = "0.6.4"
+# Hardware acceleration (provided by aes-gcm internally when available)
 
 # Hashing and integrity
 sha2 = "0.10.8"
@@ -36,8 +34,8 @@ anyhow = "1.0"
 thiserror = "1.0"
 
 # File system and I/O
-tokio = { version = "1.0", features = ["full"] }
 base64 = "0.21.5"
+sha3 = "0.10"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }

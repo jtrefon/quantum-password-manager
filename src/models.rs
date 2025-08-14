@@ -8,8 +8,8 @@ use uuid::Uuid;
 pub enum SecurityLevel {
     Standard, // AES-256-GCM
     #[default]
-    High,     // AES-256-GCM + ChaCha20-Poly1305
-    Quantum,  // AES-256-GCM + ChaCha20-Poly1305 + additional rounds
+    High, // AES-256-GCM (with stronger KDF params)
+    Quantum, // AES-256-GCM with quantum-safe profile (stronger KDF, SHA-3 based HMAC)
 }
 
 /// Types of items that can be stored

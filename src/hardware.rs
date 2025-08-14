@@ -104,9 +104,10 @@ impl HardwareAes {
     }
 
     /// Encrypt data using hardware acceleration
+    #[allow(dead_code)]
     pub fn encrypt(&self, key: &[u8], nonce: &[u8], data: &[u8]) -> Result<Vec<u8>> {
-        // For now, use the existing aes-gcm implementation which already handles hardware acceleration
         // The aes-gcm crate automatically uses hardware acceleration when available
+        // on Apple Silicon and x86_64 with AES-NI.
         use aes_gcm::aead::Aead;
         use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 
@@ -122,9 +123,10 @@ impl HardwareAes {
     }
 
     /// Decrypt data using hardware acceleration
+    #[allow(dead_code)]
     pub fn decrypt(&self, key: &[u8], nonce: &[u8], data: &[u8]) -> Result<Vec<u8>> {
-        // For now, use the existing aes-gcm implementation which already handles hardware acceleration
         // The aes-gcm crate automatically uses hardware acceleration when available
+        // on Apple Silicon and x86_64 with AES-NI.
         use aes_gcm::aead::Aead;
         use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 

@@ -92,11 +92,11 @@ pub fn demo_progress_indicator() {
         }));
 
     // Create encryption context with progress
-    println!("\n📊 Creating encryption context with quantum security...");
+    println!("\n📊 Creating encryption context with high security...");
     let settings = crate::models::SecuritySettings {
-        testing_mode: true, // Use testing mode for demo
+        testing_mode: true,              // Use testing mode for demo
         key_derivation_iterations: 1000, // Reduced for demo
-        memory_cost: 1024, // Reduced for demo
+        memory_cost: 1024,               // Reduced for demo
         ..Default::default()
     };
 
@@ -793,9 +793,9 @@ impl CliHandler {
         println!();
 
         if is_available {
-            println!("🚀 Hardware acceleration will be used for encryption/decryption operations.");
+            println!("🚀 Hardware acceleration is active in AES-GCM operations (via aes-gcm).");
             println!(
-                "   This provides significant performance improvements on supported hardware."
+                "   Expect significant performance improvements on supported Apple Silicon and x86_64."
             );
         } else {
             println!("⚠️  No hardware acceleration detected. Using software implementations.");

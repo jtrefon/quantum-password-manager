@@ -1,15 +1,30 @@
 use crate::crypto::{EncryptionContext, ProgressCallback};
 use crate::models::{DatabaseSettings, Item, PasswordDatabase, SecurityLevel, SecuritySettings};
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use uuid::Uuid;
+
+/// File header stored alongside ciphertext
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FileHeader {
+    magic: String,       // "PMDB"
+    header_version: u32, // 1
+    security_level: SecurityLevel,
+    kdf_settings: SecuritySettings,
+    salt_b64: String,
+    hmac_b64: String,  // HMAC over plaintext JSON
+    algorithm: String, // "AES-256-GCM"
+}
 
 /// Database manager for handling password database operations
 pub struct DatabaseManager {
     pub database: PasswordDatabase,
     pub encryption_context: Option<EncryptionContext>,
     pub file_path: Option<String>,
+    pub file_hmac: Option<Vec<u8>>, // HMAC of last saved/loaded plaintext
 }
 
 impl DatabaseManager {
@@ -44,6 +59,7 @@ impl DatabaseManager {
             database,
             encryption_context: None,
             file_path: None,
+            file_hmac: None,
         })
     }
 
@@ -58,66 +74,76 @@ impl DatabaseManager {
         master_password: &str,
         progress_callback: Option<ProgressCallback>,
     ) -> Result<Self> {
-        let encrypted_data =
+        let file_bytes =
             fs::read(file_path).map_err(|e| anyhow!("Failed to read database file: {}", e))?;
 
-        // Try to decrypt with different security levels
-        for (i, security_level) in [
-            SecurityLevel::Standard,
-            SecurityLevel::High,
-            SecurityLevel::Quantum,
-        ]
-        .iter()
-        .enumerate()
-        {
-            if let Some(callback) = &progress_callback {
-                if let Ok(callback) = callback.lock() {
-                    callback(
-                        &format!("Trying security level {security_level:?}"),
-                        (i as f32) / 3.0,
-                    );
-                }
-            }
+        // Parse magic and header length
+        if file_bytes.len() < 8 {
+            return Err(anyhow!("Database file too short"));
+        }
+        if &file_bytes[0..4] != b"PMDB" {
+            return Err(anyhow!("Invalid file magic"));
+        }
+        let header_len =
+            u32::from_le_bytes([file_bytes[4], file_bytes[5], file_bytes[6], file_bytes[7]])
+                as usize;
+        if file_bytes.len() < 8 + header_len {
+            return Err(anyhow!("Corrupted file header"));
+        }
 
-            let settings = SecuritySettings::default();
-            let encryption_context = EncryptionContext::new_with_progress(
-                master_password,
-                security_level.clone(),
-                settings,
-                progress_callback.clone(),
-            )?;
+        let header_json = &file_bytes[8..8 + header_len];
+        let header: FileHeader = serde_json::from_slice(header_json)
+            .map_err(|e| anyhow!("Failed to parse header: {}", e))?;
+        if header.magic != "PMDB" {
+            return Err(anyhow!("Invalid header magic"));
+        }
+        if header.header_version != 1 {
+            return Err(anyhow!("Unsupported header version"));
+        }
+        if header.algorithm != "AES-256-GCM" {
+            return Err(anyhow!("Unsupported algorithm"));
+        }
 
-            match encryption_context.decrypt(&encrypted_data) {
-                Ok(decrypted_data) => {
-                    let database: PasswordDatabase = serde_json::from_slice(&decrypted_data)
-                        .map_err(|e| anyhow!("Failed to deserialize database: {}", e))?;
+        let salt = general_purpose::STANDARD
+            .decode(header.salt_b64.as_bytes())
+            .map_err(|e| anyhow!("Failed to decode salt: {}", e))?;
 
-                    // Verify integrity
-                    let calculated_hash =
-                        encryption_context.calculate_integrity_hash(&database.items)?;
-                    if calculated_hash != database.integrity_hash {
-                        return Err(anyhow!("Database integrity check failed"));
-                    }
+        let ciphertext = &file_bytes[8 + header_len..];
 
-                    if let Some(callback) = &progress_callback {
-                        if let Ok(callback) = callback.lock() {
-                            callback("Database loaded successfully", 1.0);
-                        }
-                    }
+        let encryption_context = EncryptionContext::from_params_with_progress(
+            master_password,
+            header.security_level.clone(),
+            header.kdf_settings.clone(),
+            salt,
+            progress_callback.clone(),
+        )?;
 
-                    return Ok(Self {
-                        database,
-                        encryption_context: Some(encryption_context),
-                        file_path: Some(file_path.to_string()),
-                    });
-                }
-                Err(_) => continue,
+        let decrypted_data = encryption_context.decrypt(ciphertext)?;
+
+        // Verify HMAC over plaintext
+        let expected_hmac = general_purpose::STANDARD
+            .decode(header.hmac_b64.as_bytes())
+            .map_err(|e| anyhow!("Failed to decode HMAC: {}", e))?;
+        let is_valid = encryption_context.verify_hmac(&decrypted_data, &expected_hmac)?;
+        if !is_valid {
+            return Err(anyhow!("Database integrity (HMAC) check failed"));
+        }
+
+        let database: PasswordDatabase = serde_json::from_slice(&decrypted_data)
+            .map_err(|e| anyhow!("Failed to deserialize database: {}", e))?;
+
+        if let Some(callback) = &progress_callback {
+            if let Ok(callback) = callback.lock() {
+                callback("Database loaded successfully", 1.0);
             }
         }
 
-        Err(anyhow!(
-            "Failed to decrypt database with any security level"
-        ))
+        Ok(Self {
+            database,
+            encryption_context: Some(encryption_context),
+            file_path: Some(file_path.to_string()),
+            file_hmac: Some(expected_hmac),
+        })
     }
 
     /// Save database to file
@@ -138,29 +164,24 @@ impl DatabaseManager {
             EncryptionContext::new_with_progress(
                 master_password,
                 self.database.security_level.clone(),
-                SecuritySettings::default(),
+                self.database.metadata.settings.security_settings.clone(),
                 progress_callback.clone(),
             )?
         };
 
-        // Update integrity hash
-        if let Some(callback) = &progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Calculating integrity hash", 0.2);
-            }
-        }
-        self.database.integrity_hash =
-            encryption_context.calculate_integrity_hash(&self.database.items)?;
         self.database.updated_at = Utc::now();
 
         // Serialize database
         if let Some(callback) = &progress_callback {
             if let Ok(callback) = callback.lock() {
-                callback("Serializing database", 0.4);
+                callback("Serializing database", 0.3);
             }
         }
         let json_data = serde_json::to_vec(&self.database)
             .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
+
+        // Compute HMAC over plaintext
+        let hmac = encryption_context.compute_hmac(&json_data)?;
 
         // Encrypt data
         if let Some(callback) = &progress_callback {
@@ -170,13 +191,33 @@ impl DatabaseManager {
         }
         let encrypted_data = encryption_context.encrypt(&json_data)?;
 
+        // Build header
+        let header = FileHeader {
+            magic: "PMDB".to_string(),
+            header_version: 1,
+            security_level: self.database.security_level.clone(),
+            kdf_settings: encryption_context.settings.clone(),
+            salt_b64: general_purpose::STANDARD.encode(&encryption_context.salt),
+            hmac_b64: general_purpose::STANDARD.encode(&hmac),
+            algorithm: "AES-256-GCM".to_string(),
+        };
+        let header_json = serde_json::to_vec(&header)
+            .map_err(|e| anyhow!("Failed to serialize header: {}", e))?;
+
+        // Compose file: magic + header_len + header_json + encrypted
+        let mut file_bytes = Vec::with_capacity(8 + header_json.len() + encrypted_data.len());
+        file_bytes.extend_from_slice(b"PMDB");
+        file_bytes.extend_from_slice(&(header_json.len() as u32).to_le_bytes());
+        file_bytes.extend_from_slice(&header_json);
+        file_bytes.extend_from_slice(&encrypted_data);
+
         // Write to file
         if let Some(callback) = &progress_callback {
             if let Ok(callback) = callback.lock() {
-                callback("Writing to file", 0.8);
+                callback("Writing to file", 0.9);
             }
         }
-        fs::write(file_path, encrypted_data)
+        fs::write(file_path, file_bytes)
             .map_err(|e| anyhow!("Failed to write database file: {}", e))?;
 
         if let Some(callback) = &progress_callback {
@@ -187,6 +228,7 @@ impl DatabaseManager {
 
         self.encryption_context = Some(encryption_context);
         self.file_path = Some(file_path.to_string());
+        self.file_hmac = Some(hmac);
 
         Ok(())
     }
@@ -294,15 +336,21 @@ impl DatabaseManager {
     /// Verify integrity of all items
     pub fn verify_integrity(&self) -> Result<bool> {
         if let Some(ctx) = &self.encryption_context {
+            // Optional: keep per-item integrity checks
             for item in &self.database.items {
                 if !ctx.verify_item_integrity(item)? {
                     return Ok(false);
                 }
             }
-
-            // Verify overall integrity hash
-            let calculated_hash = ctx.calculate_integrity_hash(&self.database.items)?;
-            Ok(calculated_hash == self.database.integrity_hash)
+            // Verify HMAC against the last loaded/saved HMAC
+            let json_data = serde_json::to_vec(&self.database)
+                .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
+            let current_hmac = ctx.compute_hmac(&json_data)?;
+            if let Some(file_hmac) = &self.file_hmac {
+                Ok(&current_hmac == file_hmac)
+            } else {
+                Ok(true)
+            }
         } else {
             Err(anyhow!("Database not initialized with encryption context"))
         }
