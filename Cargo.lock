@@ -571,6 +571,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
