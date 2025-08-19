@@ -11,11 +11,16 @@ use rand::{seq::SliceRandom, RngCore};
 use sha2::{Digest, Sha256};
 use sha3::Sha3_256;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use zeroize::Zeroize;
 
 /// Progress callback function type
-pub type ProgressCallback = Arc<Mutex<dyn Fn(&str, f32) + Send + Sync>>;
+///
+/// The callback is wrapped in an `Arc` so it can be shared across threads,
+/// but it doesn't need a `Mutex` because it is only ever called immutably.
+/// Removing the mutex avoids unnecessary locking overhead while still
+/// allowing the callback to be shared safely.
+pub type ProgressCallback = Arc<dyn Fn(&str, f32) + Send + Sync>;
 
 /// Progress indicator for encryption operations
 pub struct ProgressIndicator {
@@ -49,9 +54,7 @@ impl ProgressIndicator {
         };
 
         if let Some(callback) = &self.callback {
-            if let Ok(callback) = callback.lock() {
-                callback(&format!("{}: {}", self.operation, message), progress);
-            }
+            callback(&format!("{}: {}", self.operation, message), progress);
         }
     }
 
@@ -177,9 +180,7 @@ impl EncryptionContext {
 
         // Report progress for key derivation
         if let Some(callback) = progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Deriving master key with Argon2", 0.0);
-            }
+            callback("Deriving master key with Argon2", 0.0);
         }
 
         let mut output = vec![0u8; 32];
@@ -189,9 +190,7 @@ impl EncryptionContext {
 
         // Report completion
         if let Some(callback) = progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Master key derivation complete", 1.0);
-            }
+            callback("Master key derivation complete", 1.0);
         }
 
         Ok(output)
@@ -223,14 +222,12 @@ impl EncryptionContext {
         }
         // Announce hardware acceleration status via progress callback
         if let Some(callback) = &self.progress_callback {
-            if let Ok(callback) = callback.lock() {
-                let accel = if HardwareAccelerator::is_available() {
-                    "available"
-                } else {
-                    "not available"
-                };
-                callback(&format!("Hardware acceleration is {accel}"), 0.0);
-            }
+            let accel = if HardwareAccelerator::is_available() {
+                "available"
+            } else {
+                "not available"
+            };
+            callback(&format!("Hardware acceleration is {accel}"), 0.0);
         }
         progress.update(1, "Encrypting with AES-256-GCM");
         let result = self.encrypt_aes_gcm(data)?;
@@ -273,14 +270,12 @@ impl EncryptionContext {
         }
         // Announce hardware acceleration status via progress callback
         if let Some(callback) = &self.progress_callback {
-            if let Ok(callback) = callback.lock() {
-                let accel = if HardwareAccelerator::is_available() {
-                    "available"
-                } else {
-                    "not available"
-                };
-                callback(&format!("Hardware acceleration is {accel}"), 0.0);
-            }
+            let accel = if HardwareAccelerator::is_available() {
+                "available"
+            } else {
+                "not available"
+            };
+            callback(&format!("Hardware acceleration is {accel}"), 0.0);
         }
         progress.update(1, "Decrypting with AES-256-GCM");
         let result = self.decrypt_aes_gcm(encrypted_data)?;

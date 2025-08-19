@@ -67,14 +67,13 @@ pub fn demo_progress_indicator() -> Result<()> {
     );
 
     let progress_bar = Arc::new(Mutex::new(CliProgressBar::new()));
-    let progress_bar_clone = progress_bar.clone();
+    let progress_bar_clone = Arc::clone(&progress_bar);
 
-    let progress_callback: ProgressCallback =
-        Arc::new(Mutex::new(move |message: &str, progress: f32| {
-            if let Ok(mut bar) = progress_bar_clone.lock() {
-                bar.update(message, progress);
-            }
-        }));
+    let progress_callback: ProgressCallback = Arc::new(move |message: &str, progress: f32| {
+        if let Ok(mut bar) = progress_bar_clone.lock() {
+            bar.update(message, progress);
+        }
+    });
 
     println!("\n📊 Creating encryption context with high security...");
     let settings = SecuritySettings {
