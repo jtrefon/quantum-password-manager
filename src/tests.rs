@@ -257,86 +257,86 @@ mod tests {
         assert!(manager.encryption_context.is_some());
     }
 
-    // #[test]
-    // fn test_item_integrity() {
-    //     let context = EncryptionContext::new(
-    //         "test_password",
-    //         SecurityLevel::Standard,
-    //         SecuritySettings::default(),
-    //     )
-    //     .unwrap();
+    #[test]
+    fn test_item_integrity() {
+        let context = EncryptionContext::new(
+            "test_password",
+            SecurityLevel::Standard,
+            test_security_settings(),
+        )
+        .unwrap();
 
-    //     let base = BaseItem {
-    //         id: Uuid::new_v4(),
-    //         name: "Test Item".to_string(),
-    //         item_type: ItemType::Note,
-    //         folder_id: None,
-    //         tags: Vec::new(),
-    //         created_at: Utc::now(),
-    //         updated_at: Utc::now(),
-    //         hmac: String::new(),
-    //     };
+        let base = BaseItem {
+            id: Uuid::new_v4(),
+            name: "Test Item".to_string(),
+            item_type: ItemType::Note,
+            folder_id: None,
+            tags: Vec::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            hmac: String::new(),
+        };
 
-    //     let note = Note {
-    //         base,
-    //         content: "Test content".to_string(),
-    //         is_encrypted: false,
-    //         format: NoteFormat::PlainText,
-    //     };
+        let note = Note {
+            base,
+            content: "Test content".to_string(),
+            is_encrypted: false,
+            format: NoteFormat::PlainText,
+        };
 
-    //     let mut item = Item::Note(note);
+        let mut item = Item::Note(note);
 
-    //     // Update integrity
-    //     context.update_item_integrity(&mut item).unwrap();
+        // Update integrity
+        context.update_item_integrity(&mut item).unwrap();
 
-    //     // Verify integrity
-    //     let is_valid = context.verify_item_integrity(&item).unwrap();
-    //     assert!(is_valid);
-    // }
+        // Verify integrity
+        let is_valid = context.verify_item_integrity(&item).unwrap();
+        assert!(is_valid);
+    }
 
-    // #[test]
-    // fn test_database_integrity() {
-    //     let temp_file = NamedTempFile::new().unwrap();
-    //     let file_path = temp_file.path().to_str().unwrap();
+    #[test]
+    fn test_database_integrity() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let file_path = temp_file.path().to_str().unwrap();
 
-    //     let mut manager =
-    //         DatabaseManager::new("Test Database".to_string(), SecurityLevel::Standard).unwrap();
+        let mut manager =
+            DatabaseManager::new("Test Database".to_string(), SecurityLevel::Standard).unwrap();
 
-    //     // Override security settings for testing
-    //     manager.database.metadata.settings.security_settings = test_security_settings();
+        // Override security settings for testing
+        manager.database.metadata.settings.security_settings = test_security_settings();
 
-    //     // Initialize encryption context
-    //     manager.save_to_file(file_path, "test_password").unwrap();
+        // Initialize encryption context
+        manager.save_to_file(file_path, "test_password").unwrap();
 
-    //     // Add some items
-    //     let base = BaseItem {
-    //         id: Uuid::new_v4(),
-    //         name: "Test Item".to_string(),
-    //         item_type: ItemType::Note,
-    //         folder_id: None,
-    //         tags: Vec::new(),
-    //         created_at: Utc::now(),
-    //         updated_at: Utc::now(),
-    //         hmac: String::new(),
-    //     };
+        // Add some items
+        let base = BaseItem {
+            id: Uuid::new_v4(),
+            name: "Test Item".to_string(),
+            item_type: ItemType::Note,
+            folder_id: None,
+            tags: Vec::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            hmac: String::new(),
+        };
 
-    //     let note = Note {
-    //         base,
-    //         content: "Test content".to_string(),
-    //         is_encrypted: false,
-    //         format: NoteFormat::PlainText,
-    //     };
+        let note = Note {
+            base,
+            content: "Test content".to_string(),
+            is_encrypted: false,
+            format: NoteFormat::PlainText,
+        };
 
-    //     let item = Item::Note(note);
-    //     manager.add_item(item).unwrap();
+        let item = Item::Note(note);
+        manager.add_item(item).unwrap();
 
-    //     // Save and verify integrity
-    //     manager.save_to_file(file_path, "test_password").unwrap();
+        // Save and verify integrity
+        manager.save_to_file(file_path, "test_password").unwrap();
 
-    //     let loaded_manager = DatabaseManager::load_from_file(file_path, "test_password").unwrap();
-    //     let is_valid = loaded_manager.verify_integrity().unwrap();
-    //     assert!(is_valid);
-    // }
+        let loaded_manager = DatabaseManager::load_from_file(file_path, "test_password").unwrap();
+        let is_valid = loaded_manager.verify_integrity().unwrap();
+        assert!(is_valid);
+    }
 
     // #[test]
     // fn test_search_functionality() {
