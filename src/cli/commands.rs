@@ -503,13 +503,7 @@ impl CliHandler {
             exclude_ambiguous: false,
         };
 
-        let encryption_context = crate::crypto::EncryptionContext::new(
-            "temp",
-            SecurityLevel::Standard,
-            crate::models::SecuritySettings::default(),
-        )?;
-
-        let password = encryption_context.generate_password(&settings);
+        let password = crate::crypto::generate_password(&settings);
         term.write_line(&format!("Generated password: {password}"))?;
 
         Ok(())
