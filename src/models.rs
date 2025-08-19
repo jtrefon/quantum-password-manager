@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::hardware::HardwareAccelerator;
+
 /// Security level configuration for encryption
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum SecurityLevel {
@@ -233,17 +235,47 @@ pub struct SecuritySettings {
     pub testing_mode: bool,
 }
 
+impl SecuritySettings {
+    /// Return recommended KDF parameters for a given security level. Values
+    /// are tuned for a balance between security and performance and leverage
+    /// available hardware parallelism.
+    pub fn recommended(level: SecurityLevel) -> Self {
+        let parallelism = HardwareAccelerator::optimal_thread_count() as u32;
+        match level {
+            SecurityLevel::Standard => Self {
+                key_derivation_iterations: 3,
+                memory_cost: 65_536, // 64 MiB
+                parallelism,
+                salt_length: 32,
+                iv_length: 12,
+                tag_length: 16,
+                testing_mode: false,
+            },
+            SecurityLevel::High => Self {
+                key_derivation_iterations: 4,
+                memory_cost: 131_072, // 128 MiB
+                parallelism,
+                salt_length: 32,
+                iv_length: 12,
+                tag_length: 16,
+                testing_mode: false,
+            },
+            SecurityLevel::Quantum => Self {
+                key_derivation_iterations: 5,
+                memory_cost: 262_144, // 256 MiB
+                parallelism,
+                salt_length: 32,
+                iv_length: 12,
+                tag_length: 16,
+                testing_mode: false,
+            },
+        }
+    }
+}
+
 impl Default for SecuritySettings {
     fn default() -> Self {
-        Self {
-            key_derivation_iterations: 100_000,
-            memory_cost: 65536,
-            parallelism: 4,
-            salt_length: 32,
-            iv_length: 12,
-            tag_length: 16,
-            testing_mode: false,
-        }
+        Self::recommended(SecurityLevel::default())
     }
 }
 

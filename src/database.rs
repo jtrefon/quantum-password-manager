@@ -40,7 +40,10 @@ impl DatabaseManager {
         security_level: SecurityLevel,
         _progress_callback: Option<ProgressCallback>,
     ) -> Result<Self> {
-        let _settings = SecuritySettings::default();
+        let settings = DatabaseSettings {
+            security_settings: SecuritySettings::recommended(security_level.clone()),
+            ..DatabaseSettings::default()
+        };
         let database = PasswordDatabase {
             version: "1.0.0".to_string(),
             created_at: Utc::now(),
@@ -50,7 +53,7 @@ impl DatabaseManager {
             metadata: crate::models::DatabaseMetadata {
                 name,
                 description: None,
-                settings: DatabaseSettings::default(),
+                settings,
                 custom_fields: std::collections::HashMap::new(),
             },
             integrity_hash: String::new(),

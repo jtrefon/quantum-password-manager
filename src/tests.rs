@@ -17,8 +17,7 @@ mod tests {
 
     #[test]
     fn test_encryption_context_creation() {
-        let mut settings = SecuritySettings::default();
-        settings.key_derivation_iterations = 10; // Very reduced for CI testing
+        let settings = test_security_settings();
 
         let context =
             EncryptionContext::new("test_password", SecurityLevel::High, settings).unwrap();
@@ -31,8 +30,7 @@ mod tests {
 
     #[test]
     fn test_encryption_decryption() {
-        let mut settings = SecuritySettings::default();
-        settings.key_derivation_iterations = 10; // Very reduced for CI testing
+        let settings = test_security_settings();
 
         let context =
             EncryptionContext::new("test_password", SecurityLevel::Standard, settings).unwrap();
