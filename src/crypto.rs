@@ -11,7 +11,6 @@ use hmac::{Hmac, Mac};
 use rand::{seq::SliceRandom, RngCore};
 use sha2::{Digest, Sha256};
 use sha3::Sha3_256;
-use std::collections::HashMap;
 use std::sync::Arc;
 use zeroize::Zeroize;
 
@@ -80,7 +79,8 @@ pub struct EncryptionContext {
     #[allow(dead_code)]
     pub security_level: SecurityLevel,
     pub settings: SecuritySettings,
-    pub derived_keys: HashMap<String, Vec<u8>>,
+    pub aes_key: Vec<u8>,
+    pub integrity_key: Vec<u8>,
     pub progress_callback: Option<ProgressCallback>,
     #[allow(dead_code)]
     pub hardware_aes: HardwareAes,
@@ -89,9 +89,8 @@ pub struct EncryptionContext {
 impl Drop for EncryptionContext {
     fn drop(&mut self) {
         self.salt.zeroize();
-        for key in self.derived_keys.values_mut() {
-            key.zeroize();
-        }
+        self.aes_key.zeroize();
+        self.integrity_key.zeroize();
     }
 }
 
@@ -140,15 +139,10 @@ impl EncryptionContext {
         )?;
 
         // Generate additional keys for different purposes using HKDF
-        let mut derived_keys = HashMap::new();
-
-        // Key for AES encryption
         let aes_key = Self::derive_key(&master_key, b"aes_key", &security_level)?;
-        derived_keys.insert("aes".to_string(), aes_key);
 
         // Key for integrity checking (HMAC)
         let integrity_key = Self::derive_key(&master_key, b"integrity_key", &security_level)?;
-        derived_keys.insert("integrity".to_string(), integrity_key);
 
         // Master key is no longer needed after deriving other keys
         master_key.zeroize();
@@ -157,7 +151,8 @@ impl EncryptionContext {
             salt,
             security_level,
             settings,
-            derived_keys,
+            aes_key,
+            integrity_key,
             progress_callback,
             hardware_aes: HardwareAes::new(),
         })
@@ -239,12 +234,7 @@ impl EncryptionContext {
 
     /// AES-256-GCM with fresh nonce per encryption. Output: nonce || ciphertext
     fn encrypt_aes_gcm(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let aes_key = self
-            .derived_keys
-            .get("aes")
-            .ok_or_else(|| anyhow!("AES key not found"))?;
-
-        let cipher = Aes256Gcm::new_from_slice(aes_key)
+        let cipher = Aes256Gcm::new_from_slice(&self.aes_key)
             .map_err(|e| anyhow!("Failed to create AES cipher: {}", e))?;
 
         // Generate fresh nonce per message
@@ -293,12 +283,7 @@ impl EncryptionContext {
 
         let (iv_data, cipher_data) = encrypted_data.split_at(self.settings.iv_length);
 
-        let aes_key = self
-            .derived_keys
-            .get("aes")
-            .ok_or_else(|| anyhow!("AES key not found"))?;
-
-        let cipher = Aes256Gcm::new_from_slice(aes_key)
+        let cipher = Aes256Gcm::new_from_slice(&self.aes_key)
             .map_err(|e| anyhow!("Failed to create AES cipher: {}", e))?;
 
         let nonce = Nonce::from_slice(iv_data);
@@ -350,10 +335,7 @@ impl EncryptionContext {
 
     /// Compute HMAC using the integrity key
     pub fn compute_hmac(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let key = self
-            .derived_keys
-            .get("integrity")
-            .ok_or_else(|| anyhow!("Integrity key not found"))?;
+        let key = &self.integrity_key;
         if matches!(self.security_level, SecurityLevel::Quantum) {
             let mut mac = <Hmac<Sha3_256> as hmac::Mac>::new_from_slice(key)
                 .map_err(|e| anyhow!("Failed to create HMAC: {}", e))?;
@@ -369,10 +351,7 @@ impl EncryptionContext {
 
     /// Verify HMAC
     pub fn verify_hmac(&self, data: &[u8], expected: &[u8]) -> Result<bool> {
-        let key = self
-            .derived_keys
-            .get("integrity")
-            .ok_or_else(|| anyhow!("Integrity key not found"))?;
+        let key = &self.integrity_key;
         if matches!(self.security_level, SecurityLevel::Quantum) {
             let mut mac = <Hmac<Sha3_256> as hmac::Mac>::new_from_slice(key)
                 .map_err(|e| anyhow!("Failed to create HMAC: {}", e))?;
