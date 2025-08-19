@@ -1,3 +1,4 @@
+use super::progress::demo_progress_indicator;
 use crate::database::DatabaseManager;
 use crate::models::{
     BaseItem, Credential, Folder, Item, ItemType, Key, KeyType, KeyUsage, Note, NoteFormat,
@@ -10,7 +11,6 @@ use console::{style, Term};
 use dialoguer::{Confirm, Input, Password};
 use std::path::Path;
 use uuid::Uuid;
-use super::progress::demo_progress_indicator;
 
 #[derive(Parser)]
 #[command(name = "password_manager")]

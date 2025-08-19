@@ -1,6 +1,6 @@
-pub mod progress;
 pub mod commands;
+pub mod progress;
 
 pub use commands::*;
 #[allow(unused_imports)]
-pub use progress::{CliProgressBar, demo_progress_indicator};
+pub use progress::{demo_progress_indicator, CliProgressBar};
