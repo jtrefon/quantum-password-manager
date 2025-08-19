@@ -6,6 +6,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 /// File header stored alongside ciphertext
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -423,6 +424,68 @@ impl DatabaseManager {
         Ok(())
     }
 
+    fn zeroize_items(items: &mut [Item]) {
+        for item in items.iter_mut() {
+            {
+                let base = item.get_base_mut();
+                base.name.zeroize();
+                for tag in &mut base.tags {
+                    tag.zeroize();
+                }
+            }
+            match item {
+                Item::Credential(c) => {
+                    c.username.zeroize();
+                    c.password.zeroize();
+                    if let Some(url) = &mut c.url {
+                        url.zeroize();
+                    }
+                    if let Some(notes) = &mut c.notes {
+                        notes.zeroize();
+                    }
+                    if let Some(totp) = &mut c.totp_secret {
+                        totp.zeroize();
+                    }
+                    for history in &mut c.password_history {
+                        history.password.zeroize();
+                    }
+                }
+                Item::SecureNote(s) => {
+                    s.encrypted_content.zeroize();
+                    for value in s.additional_metadata.values_mut() {
+                        value.zeroize();
+                    }
+                }
+                Item::Key(k) => {
+                    k.key_data.zeroize();
+                }
+                Item::Note(n) => {
+                    n.content.zeroize();
+                }
+                Item::Url(u) => {
+                    u.url.zeroize();
+                    if let Some(title) = &mut u.title {
+                        title.zeroize();
+                    }
+                    if let Some(favicon) = &mut u.favicon {
+                        favicon.zeroize();
+                    }
+                    if let Some(notes) = &mut u.notes {
+                        notes.zeroize();
+                    }
+                }
+                Item::Folder(f) => {
+                    if let Some(desc) = &mut f.description {
+                        desc.zeroize();
+                    }
+                    if let Some(color) = &mut f.color {
+                        color.zeroize();
+                    }
+                }
+            }
+        }
+    }
+
     /// Get database metadata
     pub fn get_metadata(&self) -> &crate::models::DatabaseMetadata {
         &self.database.metadata
@@ -444,14 +507,20 @@ impl DatabaseManager {
 
     /// Lock database (clear encryption context)
     pub fn lock(&mut self) {
+        Self::zeroize_items(&mut self.database.items);
+        self.database.items.clear();
         self.encryption_context = None;
+        self.file_hmac = None;
     }
 
     /// Unlock database with master password
     pub fn unlock(&mut self, master_password: &str) -> Result<()> {
-        if let Some(file_path) = &self.file_path {
-            let new_manager = Self::load_from_file(file_path, master_password)?;
+        if let Some(file_path) = self.file_path.clone() {
+            let new_manager = Self::load_from_file(&file_path, master_password)?;
+            self.database = new_manager.database;
             self.encryption_context = new_manager.encryption_context;
+            self.file_hmac = new_manager.file_hmac;
+            self.file_path = new_manager.file_path;
             Ok(())
         } else {
             Err(anyhow!("No file path set for database"))

@@ -4,7 +4,7 @@ mod tests {
     use crate::database::DatabaseManager;
     use crate::models::*;
     use chrono::Utc;
-    // use tempfile::NamedTempFile; // Commented out since file-based tests are disabled for CI
+    use tempfile::NamedTempFile;
     use uuid::Uuid;
 
     fn test_security_settings() -> SecuritySettings {
@@ -215,6 +215,59 @@ mod tests {
         assert_eq!(manager.database.security_level, SecurityLevel::Standard);
         assert!(manager.database.items.is_empty());
         assert!(manager.is_locked());
+    }
+
+    #[test]
+    fn test_lock_and_unlock_cycle() {
+        let mut manager =
+            DatabaseManager::new("LockTest".to_string(), SecurityLevel::Standard).unwrap();
+
+        // Reduce security params for faster testing
+        let settings = test_security_settings();
+        manager.database.metadata.settings.security_settings = settings.clone();
+
+        // Initialize encryption context and add a credential
+        let ctx =
+            EncryptionContext::new("master", SecurityLevel::Standard, settings.clone()).unwrap();
+        manager.encryption_context = Some(ctx);
+
+        let base = BaseItem {
+            id: Uuid::new_v4(),
+            name: "Entry".to_string(),
+            item_type: ItemType::Credential,
+            folder_id: None,
+            tags: Vec::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            crc32: 0,
+            sha256: String::new(),
+        };
+
+        let cred = Credential {
+            base,
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            url: None,
+            notes: None,
+            totp_secret: None,
+            last_used: None,
+            password_history: Vec::new(),
+        };
+
+        manager.add_item(Item::Credential(cred)).unwrap();
+
+        let temp_file = NamedTempFile::new().unwrap();
+        let file_path = temp_file.path().to_str().unwrap();
+        manager.save_to_file(file_path, "master").unwrap();
+
+        assert!(!manager.database.items.is_empty());
+        manager.lock();
+        assert!(manager.database.items.is_empty());
+        assert!(manager.encryption_context.is_none());
+
+        manager.unlock("master").unwrap();
+        assert!(!manager.database.items.is_empty());
+        assert!(manager.encryption_context.is_some());
     }
 
     // #[test]
