@@ -6,7 +6,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use uuid::Uuid;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 /// File header stored alongside ciphertext
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,7 +119,7 @@ impl DatabaseManager {
             progress_callback.clone(),
         )?;
 
-        let decrypted_data = encryption_context.decrypt(ciphertext)?;
+        let decrypted_data = Zeroizing::new(encryption_context.decrypt(ciphertext)?);
 
         // Verify HMAC over plaintext
         let expected_hmac = general_purpose::STANDARD
@@ -174,8 +174,10 @@ impl DatabaseManager {
         if let Some(callback) = &progress_callback {
             callback("Serializing database", 0.3);
         }
-        let json_data = serde_json::to_vec(&self.database)
-            .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
+        let json_data = Zeroizing::new(
+            serde_json::to_vec(&self.database)
+                .map_err(|e| anyhow!("Failed to serialize database: {}", e))?,
+        );
 
         // Compute HMAC over plaintext
         let hmac = encryption_context.compute_hmac(&json_data)?;
@@ -334,8 +336,10 @@ impl DatabaseManager {
                 }
             }
             // Verify HMAC against the last loaded/saved HMAC
-            let json_data = serde_json::to_vec(&self.database)
-                .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
+            let json_data = Zeroizing::new(
+                serde_json::to_vec(&self.database)
+                    .map_err(|e| anyhow!("Failed to serialize database: {}", e))?,
+            );
             if let Some(file_hmac) = &self.file_hmac {
                 // Use constant-time verification via HMAC API
                 ctx.verify_hmac(&json_data, file_hmac)
@@ -500,6 +504,9 @@ impl DatabaseManager {
         Self::zeroize_items(&mut self.database.items);
         self.database.items.clear();
         self.encryption_context = None;
+        if let Some(hmac) = &mut self.file_hmac {
+            hmac.zeroize();
+        }
         self.file_hmac = None;
     }
 
