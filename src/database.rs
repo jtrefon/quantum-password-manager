@@ -134,9 +134,7 @@ impl DatabaseManager {
             .map_err(|e| anyhow!("Failed to deserialize database: {}", e))?;
 
         if let Some(callback) = &progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Database loaded successfully", 1.0);
-            }
+            callback("Database loaded successfully", 1.0);
         }
 
         Ok(Self {
@@ -174,9 +172,7 @@ impl DatabaseManager {
 
         // Serialize database
         if let Some(callback) = &progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Serializing database", 0.3);
-            }
+            callback("Serializing database", 0.3);
         }
         let json_data = serde_json::to_vec(&self.database)
             .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
@@ -186,9 +182,7 @@ impl DatabaseManager {
 
         // Encrypt data
         if let Some(callback) = &progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Encrypting database", 0.6);
-            }
+            callback("Encrypting database", 0.6);
         }
         let encrypted_data = encryption_context.encrypt(&json_data)?;
 
@@ -214,17 +208,13 @@ impl DatabaseManager {
 
         // Write to file
         if let Some(callback) = &progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Writing to file", 0.9);
-            }
+            callback("Writing to file", 0.9);
         }
         fs::write(file_path, file_bytes)
             .map_err(|e| anyhow!("Failed to write database file: {}", e))?;
 
         if let Some(callback) = &progress_callback {
-            if let Ok(callback) = callback.lock() {
-                callback("Database saved successfully", 1.0);
-            }
+            callback("Database saved successfully", 1.0);
         }
 
         self.encryption_context = Some(encryption_context);
