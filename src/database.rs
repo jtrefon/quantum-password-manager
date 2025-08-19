@@ -336,9 +336,9 @@ impl DatabaseManager {
             // Verify HMAC against the last loaded/saved HMAC
             let json_data = serde_json::to_vec(&self.database)
                 .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
-            let current_hmac = ctx.compute_hmac(&json_data)?;
             if let Some(file_hmac) = &self.file_hmac {
-                Ok(&current_hmac == file_hmac)
+                // Use constant-time verification via HMAC API
+                ctx.verify_hmac(&json_data, file_hmac)
             } else {
                 Ok(true)
             }
