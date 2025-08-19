@@ -55,7 +55,7 @@ impl CliProgressBar {
 }
 
 /// Demo function to show progress indicator in action
-pub fn demo_progress_indicator() {
+pub fn demo_progress_indicator() -> Result<()> {
     use crate::crypto::{EncryptionContext, ProgressCallback};
     use crate::hardware::HardwareAccelerator;
     use std::sync::{Arc, Mutex};
@@ -105,8 +105,7 @@ pub fn demo_progress_indicator() {
         SecurityLevel::Quantum,
         settings,
         Some(progress_callback.clone()),
-    )
-    .unwrap();
+    )?;
 
     if let Ok(mut bar) = progress_bar.lock() {
         bar.finish("Encryption context created successfully!");
@@ -116,7 +115,7 @@ pub fn demo_progress_indicator() {
     println!("\n🔒 Encrypting test data with quantum security...");
     let test_data =
         b"This is a test message that will be encrypted with quantum-resistant encryption";
-    let encrypted = context.encrypt(test_data).unwrap();
+    let encrypted = context.encrypt(test_data)?;
 
     if let Ok(mut bar) = progress_bar.lock() {
         bar.finish("Encryption completed successfully!");
@@ -124,16 +123,19 @@ pub fn demo_progress_indicator() {
 
     // Test decryption with progress
     println!("\n🔓 Decrypting test data...");
-    let decrypted = context.decrypt(&encrypted).unwrap();
+    let decrypted = context.decrypt(&encrypted)?;
 
     if let Ok(mut bar) = progress_bar.lock() {
         bar.finish("Decryption completed successfully!");
     }
 
     // Verify the data
-    assert_eq!(test_data, decrypted.as_slice());
+    if test_data != decrypted.as_slice() {
+        return Err(anyhow!("Decrypted data does not match original message"));
+    }
     println!("\n✅ Data integrity verified - encryption/decryption working correctly!");
     println!("\n🎉 Progress indicator demo completed successfully!");
+    Ok(())
 }
 
 #[derive(Parser)]
@@ -765,7 +767,9 @@ impl CliHandler {
     }
 
     fn handle_demo() -> Result<()> {
-        demo_progress_indicator();
+        if let Err(e) = demo_progress_indicator() {
+            println!("Error: {e}");
+        }
         Ok(())
     }
 
