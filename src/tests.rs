@@ -82,11 +82,9 @@ mod tests {
             EncryptionContext::new("test_password", SecurityLevel::Standard, settings).unwrap();
 
         let test_data = b"Data for integrity test";
-        let crc = context.calculate_crc32(test_data);
-        let sha = context.calculate_sha256(test_data);
-
-        assert_ne!(crc, 0);
-        assert!(!sha.is_empty());
+        let hmac = context.compute_hmac(test_data).unwrap();
+        assert!(!hmac.is_empty());
+        assert!(context.verify_hmac(test_data, &hmac).unwrap());
     }
 
     #[test]
@@ -175,8 +173,7 @@ mod tests {
             tags: vec!["test".to_string()],
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            crc32: 0,
-            sha256: String::new(),
+            hmac: String::new(),
         };
 
         let credential = Credential {
@@ -230,8 +227,7 @@ mod tests {
             tags: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            crc32: 0,
-            sha256: String::new(),
+            hmac: String::new(),
         };
 
         let cred = Credential {
@@ -278,8 +274,7 @@ mod tests {
     //         tags: Vec::new(),
     //         created_at: Utc::now(),
     //         updated_at: Utc::now(),
-    //         crc32: 0,
-    //         sha256: String::new(),
+    //         hmac: String::new(),
     //     };
 
     //     let note = Note {
@@ -322,8 +317,7 @@ mod tests {
     //         tags: Vec::new(),
     //         created_at: Utc::now(),
     //         updated_at: Utc::now(),
-    //         crc32: 0,
-    //         sha256: String::new(),
+    //         hmac: String::new(),
     //     };
 
     //     let note = Note {
@@ -367,8 +361,7 @@ mod tests {
     //         tags: Vec::new(),
     //         created_at: Utc::now(),
     //         updated_at: Utc::now(),
-    //         crc32: 0,
-    //         sha256: String::new(),
+    //         hmac: String::new(),
     //     };
 
     //     let credential1 = Credential {
@@ -390,8 +383,7 @@ mod tests {
     //         tags: Vec::new(),
     //         created_at: Utc::now(),
     //         updated_at: Utc::now(),
-    //         crc32: 0,
-    //         sha256: String::new(),
+    //         hmac: String::new(),
     //     };
 
     //     let credential2 = Credential {
@@ -440,8 +432,7 @@ mod tests {
     //         tags: Vec::new(),
     //         created_at: Utc::now(),
     //         updated_at: Utc::now(),
-    //         crc32: 0,
-    //         sha256: String::new(),
+    //         hmac: String::new(),
     //     };
 
     //     let credential = Credential {
@@ -463,8 +454,7 @@ mod tests {
     //         tags: Vec::new(),
     //         created_at: Utc::now(),
     //         updated_at: Utc::now(),
-    //         crc32: 0,
-    //         sha256: String::new(),
+    //         hmac: String::new(),
     //     };
 
     //     let folder = Folder {
@@ -505,8 +495,7 @@ mod tests {
     //         tags: Vec::new(),
     //         created_at: Utc::now(),
     //         updated_at: Utc::now(),
-    //         crc32: 0,
-    //         sha256: String::new(),
+    //         hmac: String::new(),
     //     };
 
     //     let note = Note {

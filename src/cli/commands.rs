@@ -686,8 +686,7 @@ impl CliHandler {
             tags: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            crc32: 0,
-            sha256: String::new(),
+            hmac: String::new(),
         };
 
         match item_type {

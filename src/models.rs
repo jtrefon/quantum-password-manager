@@ -33,8 +33,8 @@ pub struct BaseItem {
     pub tags: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub crc32: u32,
-    pub sha256: String,
+    /// Base64 encoded HMAC of the serialized item for integrity verification
+    pub hmac: String,
 }
 
 /// Credential item for storing login information
