@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use sha3::Sha3_256;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use zeroize::Zeroize;
 
 /// Progress callback function type
 pub type ProgressCallback = Arc<Mutex<dyn Fn(&str, f32) + Send + Sync>>;
@@ -71,8 +72,6 @@ static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 /// Encryption context with all necessary keys and parameters
 #[derive(Clone)]
 pub struct EncryptionContext {
-    #[allow(dead_code)]
-    pub master_key: Vec<u8>,
     pub salt: Vec<u8>,
     #[allow(dead_code)]
     pub security_level: SecurityLevel,
@@ -81,6 +80,15 @@ pub struct EncryptionContext {
     pub progress_callback: Option<ProgressCallback>,
     #[allow(dead_code)]
     pub hardware_aes: HardwareAes,
+}
+
+impl Drop for EncryptionContext {
+    fn drop(&mut self) {
+        self.salt.zeroize();
+        for key in self.derived_keys.values_mut() {
+            key.zeroize();
+        }
+    }
 }
 
 impl EncryptionContext {
@@ -120,7 +128,7 @@ impl EncryptionContext {
         progress_callback: Option<ProgressCallback>,
     ) -> Result<Self> {
         // Derive master key using Argon2
-        let master_key = Self::derive_master_key(
+        let mut master_key = Self::derive_master_key(
             master_password,
             &salt,
             &settings,
@@ -138,8 +146,10 @@ impl EncryptionContext {
         let integrity_key = Self::derive_key(&master_key, b"integrity_key", &settings)?;
         derived_keys.insert("integrity".to_string(), integrity_key);
 
+        // Master key is no longer needed after deriving other keys
+        master_key.zeroize();
+
         Ok(Self {
-            master_key,
             salt,
             security_level,
             settings,
