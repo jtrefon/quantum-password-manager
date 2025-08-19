@@ -7,67 +7,13 @@ use argon2::Argon2;
 use base64::{engine::general_purpose, Engine as _};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use rand::{seq::SliceRandom, RngCore};
+use rand::RngCore;
 use sha2::{Digest, Sha256};
 use sha3::Sha3_256;
-use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
-/// Progress callback function type
-///
-/// The callback is wrapped in an `Arc` so it can be shared across threads,
-/// but it doesn't need a `Mutex` because it is only ever called immutably.
-/// Removing the mutex avoids unnecessary locking overhead while still
-/// allowing the callback to be shared safely.
-pub type ProgressCallback = Arc<dyn Fn(&str, f32) + Send + Sync>;
-
-/// Progress indicator for encryption operations
-pub struct ProgressIndicator {
-    callback: Option<ProgressCallback>,
-    operation: String,
-    total_steps: u32,
-    current_step: u32,
-}
-
-impl ProgressIndicator {
-    pub fn new(operation: &str, total_steps: u32) -> Self {
-        Self {
-            callback: None,
-            operation: operation.to_string(),
-            total_steps,
-            current_step: 0,
-        }
-    }
-
-    pub fn with_callback(mut self, callback: ProgressCallback) -> Self {
-        self.callback = Some(callback);
-        self
-    }
-
-    pub fn update(&mut self, step: u32, message: &str) {
-        self.current_step = step;
-        let progress = if self.total_steps > 0 {
-            (step as f32) / (self.total_steps as f32)
-        } else {
-            0.0
-        };
-
-        if let Some(callback) = &self.callback {
-            callback(&format!("{}: {}", self.operation, message), progress);
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn increment(&mut self, message: &str) {
-        self.current_step += 1;
-        self.update(self.current_step, message);
-    }
-
-    pub fn finish(&mut self, message: &str) {
-        self.update(self.total_steps, message);
-    }
-}
+use super::progress::{ProgressCallback, ProgressIndicator};
 
 /// Encryption context with all necessary keys and parameters
 #[derive(Clone)]
@@ -372,71 +318,4 @@ impl EncryptionContext {
         base.hmac = general_purpose::STANDARD.encode(hmac);
         Ok(())
     }
-}
-
-/// Generate a random password using the provided settings.
-///
-/// This standalone function avoids the heavy initialization cost of an
-/// `EncryptionContext` while still providing secure password generation. It
-/// uses a cryptographically secure random number generator from the `rand`
-/// crate and supports character set filtering for improved usability.
-pub fn generate_password(settings: &crate::models::PasswordGeneratorSettings) -> String {
-    let mut rng = rand::thread_rng();
-    let mut groups: Vec<Vec<u8>> = Vec::new();
-
-    if settings.use_lowercase {
-        groups.push(b"abcdefghijklmnopqrstuvwxyz".to_vec());
-    }
-    if settings.use_uppercase {
-        groups.push(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ".to_vec());
-    }
-    if settings.use_numbers {
-        groups.push(b"0123456789".to_vec());
-    }
-    if settings.use_symbols {
-        groups.push(b"!@#$%^&*()_+-=[]{}|;:,.<>?".to_vec());
-    }
-
-    if groups.is_empty() {
-        groups.push(b"abcdefghijklmnopqrstuvwxyz".to_vec());
-    }
-
-    // Remove similar or ambiguous characters if requested
-    if settings.exclude_similar || settings.exclude_ambiguous {
-        let similar = b"il1Lo0O";
-        let ambiguous = b"{}[]()/\\'\"`~,;:.<>";
-        for group in &mut groups {
-            if settings.exclude_similar {
-                group.retain(|c| !similar.contains(c));
-            }
-            if settings.exclude_ambiguous {
-                group.retain(|c| !ambiguous.contains(c));
-            }
-        }
-        // Remove any groups that became empty after filtering
-        groups.retain(|g| !g.is_empty());
-        if groups.is_empty() {
-            groups.push(b"abcdefghijklmnopqrstuvwxyz".to_vec());
-        }
-    }
-
-    let chars: Vec<u8> = groups.iter().flatten().cloned().collect();
-    let mut password: Vec<char> = Vec::with_capacity(settings.length as usize);
-
-    for group in &groups {
-        if password.len() < settings.length as usize {
-            if let Some(&ch) = group.choose(&mut rng) {
-                password.push(ch as char);
-            }
-        }
-    }
-
-    while password.len() < settings.length as usize {
-        if let Some(&ch) = chars.choose(&mut rng) {
-            password.push(ch as char);
-        }
-    }
-
-    password.shuffle(&mut rng);
-    password.into_iter().collect()
 }
