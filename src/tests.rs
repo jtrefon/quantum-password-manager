@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::crypto::EncryptionContext;
+    use crate::crypto::{generate_password, EncryptionContext};
     use crate::database::DatabaseManager;
     use crate::models::*;
     use chrono::Utc;
@@ -91,11 +91,6 @@ mod tests {
 
     #[test]
     fn test_password_generation() {
-        let settings = test_security_settings();
-
-        let context =
-            EncryptionContext::new("test_password", SecurityLevel::Standard, settings).unwrap();
-
         let settings = PasswordGeneratorSettings {
             length: 16,
             use_uppercase: true,
@@ -106,7 +101,7 @@ mod tests {
             exclude_ambiguous: false,
         };
 
-        let password = context.generate_password(&settings);
+        let password = generate_password(&settings);
         assert_eq!(password.len(), 16);
         assert!(password.chars().any(|c| c.is_uppercase()));
         assert!(password.chars().any(|c| c.is_lowercase()));
@@ -116,11 +111,6 @@ mod tests {
 
     #[test]
     fn test_password_generation_excludes_sets() {
-        let settings = test_security_settings();
-
-        let context =
-            EncryptionContext::new("test_password", SecurityLevel::Standard, settings).unwrap();
-
         let settings = PasswordGeneratorSettings {
             length: 32,
             use_uppercase: true,
@@ -131,7 +121,7 @@ mod tests {
             exclude_ambiguous: true,
         };
 
-        let password = context.generate_password(&settings);
+        let password = generate_password(&settings);
         let similar = "il1Lo0O";
         let ambiguous = "{}[]()/\\'\"`~,;:.<>";
         assert!(!password.chars().any(|c| similar.contains(c)));
