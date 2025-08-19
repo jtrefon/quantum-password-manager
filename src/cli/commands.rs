@@ -11,6 +11,7 @@ use console::{style, Term};
 use dialoguer::{Confirm, Input, Password};
 use std::path::Path;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 #[derive(Parser)]
 #[command(name = "password_manager")]
@@ -260,6 +261,21 @@ impl CliHandler {
         }
     }
 
+    /// Prompt the user for a password and zeroize it when dropped.
+    fn prompt_password(prompt: &str) -> Result<Zeroizing<String>> {
+        let password = Password::new().with_prompt(prompt).interact()?;
+        Ok(Zeroizing::new(password))
+    }
+
+    /// Prompt the user for a password with confirmation and zeroize it.
+    fn prompt_password_confirm(prompt: &str, confirm_prompt: &str) -> Result<Zeroizing<String>> {
+        let password = Password::new()
+            .with_prompt(prompt)
+            .with_confirmation(confirm_prompt, "Passwords don't match")
+            .interact()?;
+        Ok(Zeroizing::new(password))
+    }
+
     fn handle_create(args: CreateArgs) -> Result<()> {
         let term = Term::stdout();
 
@@ -277,10 +293,8 @@ impl CliHandler {
             _ => SecurityLevel::High,
         };
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .with_confirmation("Confirm master password", "Passwords don't match")
-            .interact()?;
+        let master_password =
+            Self::prompt_password_confirm("Enter master password", "Confirm master password")?;
 
         let mut manager = DatabaseManager::new(name, security_level)?;
         manager.save_to_file(&args.file, &master_password)?;
@@ -296,9 +310,7 @@ impl CliHandler {
             return Err(anyhow!("Database file does not exist"));
         }
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -312,9 +324,7 @@ impl CliHandler {
     fn handle_list(args: ListArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -363,9 +373,7 @@ impl CliHandler {
     fn handle_add(args: AddArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -390,9 +398,7 @@ impl CliHandler {
     fn handle_show(args: ShowArgs) -> Result<()> {
         let _term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -409,9 +415,7 @@ impl CliHandler {
     fn handle_edit(args: EditArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -432,9 +436,7 @@ impl CliHandler {
     fn handle_remove(args: RemoveArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -455,9 +457,7 @@ impl CliHandler {
     fn handle_search(args: SearchArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -512,9 +512,7 @@ impl CliHandler {
     fn handle_stats(args: StatsArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -527,9 +525,7 @@ impl CliHandler {
     fn handle_verify(args: VerifyArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -549,9 +545,7 @@ impl CliHandler {
     fn handle_export(args: ExportArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -564,9 +558,7 @@ impl CliHandler {
     fn handle_import(args: ImportArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
 
@@ -581,14 +573,12 @@ impl CliHandler {
     fn handle_change_password(args: ChangePasswordArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let old_password = Password::new()
-            .with_prompt("Enter current master password")
-            .interact()?;
+        let old_password = Self::prompt_password("Enter current master password")?;
 
-        let new_password = Password::new()
-            .with_prompt("Enter new master password")
-            .with_confirmation("Confirm new master password", "Passwords don't match")
-            .interact()?;
+        let new_password = Self::prompt_password_confirm(
+            "Enter new master password",
+            "Confirm new master password",
+        )?;
 
         let mut manager = DatabaseManager::load_from_file(&args.file, &old_password)?;
         manager.change_master_password(&new_password)?;
@@ -606,9 +596,7 @@ impl CliHandler {
     fn handle_lock(args: LockArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
         manager.lock();
@@ -622,9 +610,7 @@ impl CliHandler {
     fn handle_unlock(args: UnlockArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Password::new()
-            .with_prompt("Enter master password")
-            .interact()?;
+        let master_password = Self::prompt_password("Enter master password")?;
 
         let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
         manager.unlock(&master_password)?;
