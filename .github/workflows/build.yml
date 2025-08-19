@@ -12,24 +12,24 @@ env:
 jobs:
   build:
     name: Build (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: linux
+            os: ubuntu-latest
             archive: password_manager-linux-x86_64.tar.gz
             binary: password_manager
           - target: x86_64-pc-windows-msvc
-            os: windows
+            os: windows-latest
             archive: password_manager-windows-x86_64.zip
             binary: password_manager.exe
           - target: x86_64-apple-darwin
-            os: macos
+            os: macos-latest
             archive: password_manager-macos-x86_64.tar.gz
             binary: password_manager
           - target: aarch64-apple-darwin
-            os: macos
+            os: macos-latest
             archive: password_manager-macos-aarch64.tar.gz
             binary: password_manager
 
@@ -58,13 +58,14 @@ jobs:
       run: cargo build --release --target ${{ matrix.target }}
 
     - name: Create release archive
+      shell: bash
       run: |
         mkdir -p dist
-        if [ "${{ matrix.os }}" = "windows" ]; then
-          cd target/${{ matrix.target }}/release
-          zip -r ../../../dist/${{ matrix.archive }} ${{ matrix.binary }}
+        cd target/${{ matrix.target }}/release
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          powershell.exe -NoLogo -NoProfile -Command \
+            "Compress-Archive -Path '${{ matrix.binary }}' -DestinationPath '../../../dist/${{ matrix.archive }}'"
         else
-          cd target/${{ matrix.target }}/release
           tar -czf ../../../dist/${{ matrix.archive }} ${{ matrix.binary }}
         fi
 
