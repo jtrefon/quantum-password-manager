@@ -61,12 +61,11 @@ jobs:
       shell: bash
       run: |
         mkdir -p dist
-        cd target/${{ matrix.target }}/release
         if [ "$RUNNER_OS" = "Windows" ]; then
           powershell.exe -NoLogo -NoProfile -Command \
-            "Compress-Archive -Path '${{ matrix.binary }}' -DestinationPath '../../../dist/${{ matrix.archive }}'"
+            "Compress-Archive -Path 'target/${{ matrix.target }}/release/${{ matrix.binary }}' -DestinationPath 'dist/${{ matrix.archive }}'"
         else
-          tar -czf ../../../dist/${{ matrix.archive }} ${{ matrix.binary }}
+          tar -czf dist/${{ matrix.archive }} -C target/${{ matrix.target }}/release ${{ matrix.binary }}
         fi
 
     - name: Upload artifacts
