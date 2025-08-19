@@ -11,7 +11,7 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 use sha3::Sha3_256;
 use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::progress::{ProgressCallback, ProgressIndicator};
 
@@ -299,8 +299,7 @@ impl EncryptionContext {
     /// Verify integrity of an item
     pub fn verify_item_integrity(&self, item: &crate::models::Item) -> Result<bool> {
         let base = item.get_base();
-        let item_data =
-            serde_json::to_vec(item).map_err(|e| anyhow!("Failed to serialize item: {}", e))?;
+        let item_data = Self::serialize_item_without_hmac(item)?;
         let expected = match general_purpose::STANDARD.decode(&base.hmac) {
             Ok(v) => v,
             Err(_) => return Ok(false),
@@ -311,11 +310,20 @@ impl EncryptionContext {
 
     /// Update integrity checksums for an item
     pub fn update_item_integrity(&self, item: &mut crate::models::Item) -> Result<()> {
-        let item_data =
-            serde_json::to_vec(item).map_err(|e| anyhow!("Failed to serialize item: {}", e))?;
+        let item_data = Self::serialize_item_without_hmac(item)?;
         let hmac = self.compute_hmac(&item_data)?;
         let base = item.get_base_mut();
         base.hmac = general_purpose::STANDARD.encode(hmac);
         Ok(())
+    }
+
+    /// Serialize an item with the HMAC field cleared so that the HMAC
+    /// calculation is stable and does not include the previous checksum.
+    fn serialize_item_without_hmac(item: &crate::models::Item) -> Result<Zeroizing<Vec<u8>>> {
+        let mut clone = item.clone();
+        clone.get_base_mut().hmac.clear();
+        let json =
+            serde_json::to_vec(&clone).map_err(|e| anyhow!("Failed to serialize item: {}", e))?;
+        Ok(Zeroizing::new(json))
     }
 }
