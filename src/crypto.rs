@@ -1,4 +1,4 @@
-use crate::hardware::{HardwareAes, HardwareAccelerator};
+use crate::hardware::{HardwareAccelerator, HardwareAes};
 use crate::models::{SecurityLevel, SecuritySettings};
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
@@ -7,9 +7,9 @@ use argon2::Argon2;
 use base64::{engine::general_purpose, Engine as _};
 use crc::{Crc, CRC_32_ISO_HDLC};
 use hmac::{Hmac, Mac};
-use sha3::Sha3_256;
 use rand::{Rng, RngCore};
 use sha2::{Digest, Sha256};
+use sha3::Sha3_256;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
