@@ -12,6 +12,7 @@ use rand::{seq::SliceRandom, RngCore};
 use sha2::{Digest, Sha256};
 use sha3::Sha3_256;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 /// Progress callback function type
@@ -71,6 +72,12 @@ impl ProgressIndicator {
 
 /// CRC-32 calculator for integrity checking
 static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
+
+fn sha256_digest(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
 
 /// Encryption context with all necessary keys and parameters
 #[derive(Clone)]
@@ -302,9 +309,7 @@ impl EncryptionContext {
 
     /// Calculate SHA256 hash
     pub fn calculate_sha256(&self, data: &[u8]) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        general_purpose::STANDARD.encode(hasher.finalize())
+        general_purpose::STANDARD.encode(sha256_digest(data))
     }
 
     /// Calculate integrity hash for entire dataset
@@ -372,9 +377,14 @@ impl EncryptionContext {
             serde_json::to_vec(item).map_err(|e| anyhow!("Failed to serialize item: {}", e))?;
 
         let calculated_crc = self.calculate_crc32(&item_data);
-        let calculated_sha = self.calculate_sha256(&item_data);
+        let calculated_sha = sha256_digest(&item_data);
+        let stored_sha = match general_purpose::STANDARD.decode(&base.sha256) {
+            Ok(v) => v,
+            Err(_) => return Ok(false),
+        };
+        let sha_equal = stored_sha.as_slice().ct_eq(&calculated_sha).into();
 
-        Ok(calculated_crc == base.crc32 && calculated_sha == base.sha256)
+        Ok(calculated_crc == base.crc32 && sha_equal)
     }
 
     /// Update integrity checksums for an item
