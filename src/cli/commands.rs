@@ -8,135 +8,9 @@ use chrono::Utc;
 use clap::{Args, Parser, Subcommand};
 use console::{style, Term};
 use dialoguer::{Confirm, Input, Password};
-use std::io::{self, Write};
 use std::path::Path;
 use uuid::Uuid;
-
-/// Simple progress bar for CLI
-pub struct CliProgressBar {
-    term: Term,
-    last_message: String,
-}
-
-impl CliProgressBar {
-    pub fn new() -> Self {
-        Self {
-            term: Term::stdout(),
-            last_message: String::new(),
-        }
-    }
-
-    pub fn update(&mut self, message: &str, progress: f32) {
-        // Clear the current line
-        self.term.clear_line().ok();
-
-        // Create progress bar
-        let bar_width = 40;
-        let filled = (progress * bar_width as f32) as usize;
-        let bar = format!(
-            "[{}{}] {:.1}% {}",
-            "█".repeat(filled),
-            "░".repeat(bar_width - filled),
-            progress * 100.0,
-            message
-        );
-
-        // Print progress
-        print!("{bar}");
-        io::stdout().flush().ok();
-
-        self.last_message = message.to_string();
-    }
-
-    pub fn finish(&mut self, message: &str) {
-        self.term.clear_line().ok();
-        println!("✅ {message}");
-    }
-}
-
-/// Demo function to show progress indicator in action
-pub fn demo_progress_indicator() -> Result<()> {
-    use crate::crypto::{EncryptionContext, ProgressCallback};
-    use crate::hardware::HardwareAccelerator;
-    use std::sync::{Arc, Mutex};
-
-    println!("🔐 Password Manager Progress Indicator Demo");
-    println!("===========================================");
-
-    // Show hardware acceleration info
-    println!(
-        "\n🔧 Hardware Acceleration: {}",
-        if HardwareAccelerator::is_available() {
-            "✅ Available"
-        } else {
-            "❌ Not Available"
-        }
-    );
-    println!(
-        "📊 Capabilities: {}",
-        HardwareAccelerator::get_capabilities_info()
-    );
-    println!(
-        "🧵 Optimal Threads: {}",
-        HardwareAccelerator::optimal_thread_count()
-    );
-
-    let progress_bar = Arc::new(Mutex::new(CliProgressBar::new()));
-    let progress_bar_clone = progress_bar.clone();
-
-    let progress_callback: ProgressCallback =
-        Arc::new(Mutex::new(move |message: &str, progress: f32| {
-            if let Ok(mut bar) = progress_bar_clone.lock() {
-                bar.update(message, progress);
-            }
-        }));
-
-    // Create encryption context with progress
-    println!("\n📊 Creating encryption context with high security...");
-    let settings = crate::models::SecuritySettings {
-        testing_mode: true,              // Use testing mode for demo
-        key_derivation_iterations: 1000, // Reduced for demo
-        memory_cost: 1024,               // Reduced for demo
-        ..Default::default()
-    };
-
-    let context = EncryptionContext::new_with_progress(
-        "demo_password",
-        SecurityLevel::Quantum,
-        settings,
-        Some(progress_callback.clone()),
-    )?;
-
-    if let Ok(mut bar) = progress_bar.lock() {
-        bar.finish("Encryption context created successfully!");
-    }
-
-    // Test encryption with progress
-    println!("\n🔒 Encrypting test data with quantum security...");
-    let test_data =
-        b"This is a test message that will be encrypted with quantum-resistant encryption";
-    let encrypted = context.encrypt(test_data)?;
-
-    if let Ok(mut bar) = progress_bar.lock() {
-        bar.finish("Encryption completed successfully!");
-    }
-
-    // Test decryption with progress
-    println!("\n🔓 Decrypting test data...");
-    let decrypted = context.decrypt(&encrypted)?;
-
-    if let Ok(mut bar) = progress_bar.lock() {
-        bar.finish("Decryption completed successfully!");
-    }
-
-    // Verify the data
-    if test_data != decrypted.as_slice() {
-        return Err(anyhow!("Decrypted data does not match original message"));
-    }
-    println!("\n✅ Data integrity verified - encryption/decryption working correctly!");
-    println!("\n🎉 Progress indicator demo completed successfully!");
-    Ok(())
-}
+use super::progress::demo_progress_indicator;
 
 #[derive(Parser)]
 #[command(name = "password_manager")]
@@ -991,5 +865,19 @@ impl CliHandler {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_create_command() {
+        let cli = Cli::parse_from(["app", "create", "-f", "test.db"]);
+        match cli.command {
+            Commands::Create(args) => assert_eq!(args.file, "test.db"),
+            _ => panic!("expected create command"),
+        }
     }
 }
