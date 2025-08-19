@@ -114,6 +114,30 @@ mod tests {
     }
 
     #[test]
+    fn test_password_generation_excludes_sets() {
+        let settings = test_security_settings();
+
+        let context =
+            EncryptionContext::new("test_password", SecurityLevel::Standard, settings).unwrap();
+
+        let settings = PasswordGeneratorSettings {
+            length: 32,
+            use_uppercase: true,
+            use_lowercase: true,
+            use_numbers: true,
+            use_symbols: true,
+            exclude_similar: true,
+            exclude_ambiguous: true,
+        };
+
+        let password = context.generate_password(&settings);
+        let similar = "il1Lo0O";
+        let ambiguous = "{}[]()/\\'\"`~,;:.<>";
+        assert!(!password.chars().any(|c| similar.contains(c)));
+        assert!(!password.chars().any(|c| ambiguous.contains(c)));
+    }
+
+    #[test]
     fn test_database_creation() {
         let manager =
             DatabaseManager::new("Test Database".to_string(), SecurityLevel::High).unwrap();
