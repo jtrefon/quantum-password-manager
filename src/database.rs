@@ -406,18 +406,18 @@ impl DatabaseManager {
 
     /// Change master password
     pub fn change_master_password(&mut self, new_password: &str) -> Result<()> {
-        let new_encryption_context = EncryptionContext::new(
-            new_password,
-            self.database.security_level.clone(),
-            SecuritySettings::default(),
-        )?;
+        let settings = self.database.metadata.settings.security_settings.clone();
+        let new_encryption_context =
+            EncryptionContext::new(new_password, self.database.security_level.clone(), settings)?;
 
-        // Re-encrypt all items with new context
+        // Recompute per-item integrity using the new context
         for item in &mut self.database.items {
             new_encryption_context.update_item_integrity(item)?;
         }
 
         self.encryption_context = Some(new_encryption_context);
+        // Clear stored HMAC until database is saved with the new master password
+        self.file_hmac = None;
         self.database.updated_at = Utc::now();
 
         Ok(())
