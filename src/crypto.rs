@@ -7,7 +7,7 @@ use argon2::Argon2;
 use base64::{engine::general_purpose, Engine as _};
 use crc::{Crc, CRC_32_ISO_HDLC};
 use hmac::{Hmac, Mac};
-use rand::{Rng, RngCore};
+use rand::{seq::SliceRandom, RngCore};
 use sha2::{Digest, Sha256};
 use sha3::Sha3_256;
 use std::collections::HashMap;
@@ -406,31 +406,43 @@ impl EncryptionContext {
     /// Generate random password
     pub fn generate_password(&self, settings: &crate::models::PasswordGeneratorSettings) -> String {
         let mut rng = rand::thread_rng();
-        let mut chars = Vec::new();
+        let mut groups: Vec<&[u8]> = Vec::new();
 
         if settings.use_lowercase {
-            chars.extend_from_slice(b"abcdefghijklmnopqrstuvwxyz");
+            groups.push(b"abcdefghijklmnopqrstuvwxyz");
         }
         if settings.use_uppercase {
-            chars.extend_from_slice(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+            groups.push(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ");
         }
         if settings.use_numbers {
-            chars.extend_from_slice(b"0123456789");
+            groups.push(b"0123456789");
         }
         if settings.use_symbols {
-            chars.extend_from_slice(b"!@#$%^&*()_+-=[]{}|;:,.<>?");
+            groups.push(b"!@#$%^&*()_+-=[]{}|;:,.<>?");
         }
 
-        if chars.is_empty() {
-            chars.extend_from_slice(b"abcdefghijklmnopqrstuvwxyz");
+        if groups.is_empty() {
+            groups.push(b"abcdefghijklmnopqrstuvwxyz");
         }
 
-        let mut password = String::new();
-        for _ in 0..settings.length {
-            let idx = rng.gen_range(0..chars.len());
-            password.push(chars[idx] as char);
+        let chars: Vec<u8> = groups.concat();
+        let mut password: Vec<char> = Vec::with_capacity(settings.length as usize);
+
+        for group in &groups {
+            if password.len() < settings.length as usize {
+                if let Some(&ch) = group.choose(&mut rng) {
+                    password.push(ch as char);
+                }
+            }
         }
 
-        password
+        while password.len() < settings.length as usize {
+            if let Some(&ch) = chars.choose(&mut rng) {
+                password.push(ch as char);
+            }
+        }
+
+        password.shuffle(&mut rng);
+        password.into_iter().collect()
     }
 }

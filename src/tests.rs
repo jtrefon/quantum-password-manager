@@ -110,6 +110,7 @@ mod tests {
         assert!(password.chars().any(|c| c.is_uppercase()));
         assert!(password.chars().any(|c| c.is_lowercase()));
         assert!(password.chars().any(|c| c.is_numeric()));
+        assert!(password.chars().any(|c| !c.is_alphanumeric()));
     }
 
     #[test]
