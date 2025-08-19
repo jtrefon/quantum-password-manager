@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use argon2::Argon2;
 use base64::{engine::general_purpose, Engine as _};
 use crc::{Crc, CRC_32_ISO_HDLC};
+use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use rand::{seq::SliceRandom, RngCore};
 use sha2::{Digest, Sha256};
@@ -138,15 +139,15 @@ impl EncryptionContext {
             progress_callback.as_ref(),
         )?;
 
-        // Generate additional keys for different purposes
+        // Generate additional keys for different purposes using HKDF
         let mut derived_keys = HashMap::new();
 
         // Key for AES encryption
-        let aes_key = Self::derive_key(&master_key, b"aes_key", &settings)?;
+        let aes_key = Self::derive_key(&master_key, b"aes_key", &security_level)?;
         derived_keys.insert("aes".to_string(), aes_key);
 
         // Key for integrity checking (HMAC)
-        let integrity_key = Self::derive_key(&master_key, b"integrity_key", &settings)?;
+        let integrity_key = Self::derive_key(&master_key, b"integrity_key", &security_level)?;
         derived_keys.insert("integrity".to_string(), integrity_key);
 
         // Master key is no longer needed after deriving other keys
@@ -200,18 +201,19 @@ impl EncryptionContext {
     fn derive_key(
         master_key: &[u8],
         purpose: &[u8],
-        settings: &SecuritySettings,
+        security_level: &SecurityLevel,
     ) -> Result<Vec<u8>> {
-        let mut hasher = Sha256::new();
-        hasher.update(master_key);
-        hasher.update(purpose);
-        hasher.update(settings.key_derivation_iterations.to_le_bytes());
-
-        let mut key = vec![0u8; 32];
-        let hash = hasher.finalize();
-        key.copy_from_slice(&hash);
-
-        Ok(key)
+        let mut okm = [0u8; 32];
+        if *security_level == SecurityLevel::Quantum {
+            let hk = Hkdf::<Sha3_256>::new(None, master_key);
+            hk.expand(purpose, &mut okm)
+                .map_err(|e| anyhow!("Failed to derive key: {:?}", e))?;
+        } else {
+            let hk = Hkdf::<Sha256>::new(None, master_key);
+            hk.expand(purpose, &mut okm)
+                .map_err(|e| anyhow!("Failed to derive key: {:?}", e))?;
+        }
+        Ok(okm.to_vec())
     }
 
     /// Encrypt data (single AEAD under the hood)
