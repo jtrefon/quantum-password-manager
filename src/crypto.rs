@@ -5,7 +5,6 @@ use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use anyhow::{anyhow, Result};
 use argon2::Argon2;
 use base64::{engine::general_purpose, Engine as _};
-use crc::{Crc, CRC_32_ISO_HDLC};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use rand::{seq::SliceRandom, RngCore};
@@ -68,15 +67,6 @@ impl ProgressIndicator {
     pub fn finish(&mut self, message: &str) {
         self.update(self.total_steps, message);
     }
-}
-
-/// CRC-32 calculator for integrity checking
-static CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
-
-fn sha256_digest(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    hasher.finalize().into()
 }
 
 /// Encryption context with all necessary keys and parameters
@@ -302,16 +292,6 @@ impl EncryptionContext {
         Ok(decrypted)
     }
 
-    /// Calculate CRC32 checksum
-    pub fn calculate_crc32(&self, data: &[u8]) -> u32 {
-        CRC32.checksum(data)
-    }
-
-    /// Calculate SHA256 hash
-    pub fn calculate_sha256(&self, data: &[u8]) -> String {
-        general_purpose::STANDARD.encode(sha256_digest(data))
-    }
-
     /// Calculate integrity hash for entire dataset
     #[allow(dead_code)]
     pub fn calculate_integrity_hash(&self, items: &[crate::models::Item]) -> Result<String> {
@@ -375,27 +355,21 @@ impl EncryptionContext {
         let base = item.get_base();
         let item_data =
             serde_json::to_vec(item).map_err(|e| anyhow!("Failed to serialize item: {}", e))?;
-
-        let calculated_crc = self.calculate_crc32(&item_data);
-        let calculated_sha = sha256_digest(&item_data);
-        let stored_sha = match general_purpose::STANDARD.decode(&base.sha256) {
+        let expected = match general_purpose::STANDARD.decode(&base.hmac) {
             Ok(v) => v,
             Err(_) => return Ok(false),
         };
-        let sha_equal = stored_sha.as_slice().ct_eq(&calculated_sha).into();
-
-        Ok(calculated_crc == base.crc32 && sha_equal)
+        let calculated = self.compute_hmac(&item_data)?;
+        Ok(expected.as_slice().ct_eq(&calculated).into())
     }
 
     /// Update integrity checksums for an item
     pub fn update_item_integrity(&self, item: &mut crate::models::Item) -> Result<()> {
         let item_data =
             serde_json::to_vec(item).map_err(|e| anyhow!("Failed to serialize item: {}", e))?;
-
+        let hmac = self.compute_hmac(&item_data)?;
         let base = item.get_base_mut();
-        base.crc32 = self.calculate_crc32(&item_data);
-        base.sha256 = self.calculate_sha256(&item_data);
-
+        base.hmac = general_purpose::STANDARD.encode(hmac);
         Ok(())
     }
 }
