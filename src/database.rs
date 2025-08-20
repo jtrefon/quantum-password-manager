@@ -5,6 +5,9 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -148,6 +151,23 @@ impl DatabaseManager {
         })
     }
 
+    /// Write data to a file using restrictive permissions
+    fn write_secure_file(file_path: &str, data: &[u8]) -> Result<()> {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            options.mode(0o600);
+        }
+
+        let mut file = options
+            .open(file_path)
+            .map_err(|e| anyhow!("Failed to open file: {}", e))?;
+        file.write_all(data)
+            .map_err(|e| anyhow!("Failed to write file: {}", e))?;
+        Ok(())
+    }
+
     /// Save database to file
     pub fn save_to_file(&mut self, file_path: &str, master_password: &str) -> Result<()> {
         self.save_to_file_with_progress(file_path, master_password, None)
@@ -215,8 +235,7 @@ impl DatabaseManager {
         if let Some(callback) = &progress_callback {
             callback("Writing to file", 0.9);
         }
-        fs::write(file_path, file_bytes)
-            .map_err(|e| anyhow!("Failed to write database file: {}", e))?;
+        Self::write_secure_file(file_path, &file_bytes)?;
 
         if let Some(callback) = &progress_callback {
             callback("Database saved successfully", 1.0);
@@ -384,9 +403,8 @@ impl DatabaseManager {
     pub fn export_to_json(&self, file_path: &str) -> Result<()> {
         let json_data = serde_json::to_string_pretty(&self.database)
             .map_err(|e| anyhow!("Failed to serialize database: {}", e))?;
-
-        fs::write(file_path, json_data).map_err(|e| anyhow!("Failed to write JSON file: {}", e))?;
-
+        Self::write_secure_file(file_path, json_data.as_bytes())
+            .map_err(|e| anyhow!("Failed to write JSON file: {}", e))?;
         Ok(())
     }
 
