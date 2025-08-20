@@ -23,6 +23,11 @@ This roadmap tracks the vision, security principles, milestones, and concrete ta
 - [ ] Secure prompts: hidden password input, double-entry confirmation for new secrets
 - [ ] Redact secrets from errors/logs; no debug prints of buffers
 - [ ] Add `--show` override (off by default) for advanced/debug use
+ - [ ] Password generator: presets `normal`/`strong`/`insane` and advanced numeric strength `1..10`
+ - [ ] Generator options: length override, exclude ambiguous chars, allow/disallow specials to satisfy site policies
+ - [ ] "Regenerate-and-copy" loop: generate -> copy to clipboard -> retry without saving until confirmed
+ - [ ] `pm add` wizard: choose manual (double-entry) or generator path; never echo secrets
+ - [ ] `pm regenerate` for existing records with clipboard-first flow; write only on confirm
 
 ### M2 — Records, Search, and Navigation
 - [ ] Record model: name, username, password, URL, notes, tags, created/updated
@@ -30,6 +35,8 @@ This roadmap tracks the vision, security principles, milestones, and concrete ta
 - [ ] Paginated listing and interactive selection (arrow keys / numbers)
 - [ ] Favorites and recent items
 - [ ] Import from minimal CSV (no secrets echo during import)
+ - [ ] Per-record password policy (allowed char classes, min/max length, ambiguous-char rules)
+ - [ ] Optional passphrase mode (Diceware-style) for services disallowing special chars
 
 ### M3 — Attachments (keys, certificates, documents)
 - [ ] Encrypted attachments storage (streaming encryption to avoid memory spikes)
@@ -42,6 +49,7 @@ This roadmap tracks the vision, security principles, milestones, and concrete ta
 - [ ] File format versioning and key rotation command
 - [ ] Hardware-backed secrets (exploration): Secure Enclave/TPM/YubiKey for key wrapping
 - [ ] PQC exploration for key-wrapping/handshake (e.g., ML-KEM/Kyber via Rust crates) — research, benchmarks, and threat model notes
+ - [ ] Password history with timestamps and ability to rollback (hidden by default; copy-only display)
 
 ### M5 — Reliability, Tests, and Tooling
 - [ ] Cross-platform CI builds (Linux/macOS/Windows) with deterministic artifacts
@@ -56,12 +64,21 @@ This roadmap tracks the vision, security principles, milestones, and concrete ta
 - [ ] Man pages and `--help` examples without secrets
 - [ ] README quickstart + CLI reference; add docs/ folder as needed
 
+### M7 — Storage Privacy Hardening (design + implementation)
+- [ ] Encrypted metadata only: ensure flags/indices/timestamps are inside AEAD; nothing leaks in plaintext
+- [ ] Secure deletion semantics: tombstone records first; compact/vacuum to re-encrypt DB and drop deleted payloads
+- [ ] DB padding: add randomized padding/chaff to hinder size-based inference (configurable target sizes)
+- [ ] Optional decoy records/noise: encrypted indistinguishable entries; adjustable ratio; only helpful for size obfuscation
+- [ ] Design note: With Argon2id + AEAD, ciphertext is indistinguishable; decoys do not materially increase brute-force cost versus strengthening KDF params. Prefer strong KDF, unique nonces, and padding over decoys. Avoid relying on flags for plausible deniability; the model is public and flags are encrypted anyway.
+
 ## Proposed CLI Commands
-- `pm add` — interactive wizard: name, username, URL (shown); password (hidden + confirm)
+- `pm add` — interactive wizard: name, username, URL (shown). Choose: manual (hidden + confirm) or generator.
 - `pm list [--search <q>] [--tag <tag>] [--page N]` — lists records (names only)
 - `pm copy --name <record> [--field username|password|otp] [--timeout 30]` — copies to clipboard; no stdout
 - `pm show --name <record> [--safe]` — metadata only unless `--show` is passed
 - `pm edit --name <record>` — wizard; no secrets echoed
+- `pm gen [--strength normal|strong|insane|<1..10>] [--length N] [--no-special] [--no-ambiguous] [--copy] [--preview]` — generate without saving; copy-only flow
+- `pm regenerate --name <record> [--strength ...] [--length N] [--no-special] [--no-ambiguous] [--copy]` — update on confirm; clipboard-first
 - `pm attach add --name <record> --file <path>` — encrypt and attach
 - `pm attach ls --name <record>` — list attachments (names only)
 - `pm attach export --name <record> --attachment <id> --out <path>` — decrypt to file; secure permissions
@@ -89,8 +106,11 @@ This roadmap tracks the vision, security principles, milestones, and concrete ta
 - [ ] UX: Implement clipboard helpers per OS
 - [ ] UX: Secure prompts and double-entry
 - [ ] CLI: `copy` command (username/password/otp)
+- [ ] CLI: `gen` command with presets and advanced numeric strength
+- [ ] CLI: `regenerate` flow for existing records (clipboard-first)
 - [ ] CLI: `list` with pagination and search
 - [ ] Model: records + tags schema
+- [ ] Model: password policy per record
 - [ ] Attachments: encrypt, list, export to file
 - [ ] Crypto: Argon2id config + file format v1
 - [ ] Tests: E2E flows without secrets on stdout
