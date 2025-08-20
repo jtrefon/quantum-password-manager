@@ -1,7 +1,7 @@
 [package]
 name = "password_manager"
 version = "0.2.0"
-edition = "2021"
+edition = "2025"
 authors = ["Jacek Trefon - Trefon Digital Consulting"]
 description = "Ultra-secure password manager with quantum-resistant encryption"
 license-file = "LICENSE.md"
