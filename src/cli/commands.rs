@@ -1,4 +1,4 @@
-use super::progress::demo_progress_indicator;
+use super::{clipboard::copy_to_clipboard, progress::demo_progress_indicator};
 use crate::database::DatabaseManager;
 use crate::models::{
     BaseItem, Credential, Folder, Item, ItemType, Key, KeyType, KeyUsage, Note, NoteFormat,
@@ -174,6 +174,10 @@ pub struct GenerateArgs {
     /// Include symbols
     #[arg(long, default_value = "true")]
     symbols: bool,
+
+    /// Display the generated password in the terminal
+    #[arg(long)]
+    show: bool,
 }
 
 #[derive(Args)]
@@ -503,8 +507,13 @@ impl CliHandler {
             exclude_ambiguous: false,
         };
 
-        let password = crate::crypto::generate_password(&settings);
-        term.write_line(&format!("Generated password: {password}"))?;
+        let password = Zeroizing::new(crate::crypto::generate_password(&settings));
+        copy_to_clipboard(&password)?;
+        if args.show {
+            term.write_line(&format!("Generated password: {}", *password))?;
+        } else {
+            term.write_line("Password copied to clipboard.")?;
+        }
 
         Ok(())
     }
