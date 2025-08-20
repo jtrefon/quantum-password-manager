@@ -55,8 +55,15 @@ fi
 
 print_status "Preparing release $NEW_VERSION"
 
-# Update version in Cargo.toml
-sed -i "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
+# Update version in Cargo.toml with cross-platform support
+case "$(uname)" in
+  Darwin*)
+    sed -i '' "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
+    ;;
+  *)
+    sed -i "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
+    ;;
+esac
 print_status "Updated Cargo.toml version to $NEW_VERSION"
 
 # Run tests
