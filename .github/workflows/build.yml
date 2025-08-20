@@ -2,8 +2,6 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - '**'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -60,14 +58,14 @@ jobs:
       run: cargo build --release --target ${{ matrix.target }}
 
     - name: Create release archive (Windows)
-      if: runner.os == 'Windows'
+      if: ${{ runner.os == 'Windows' }}
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Path dist -Force | Out-Null
         Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.binary }}" -DestinationPath "dist/${{ matrix.archive }}" -Force
 
     - name: Create release archive (Unix)
-      if: runner.os != 'Windows'
+      if: ${{ runner.os != 'Windows' }}
       shell: bash
       run: |
         mkdir -p dist
