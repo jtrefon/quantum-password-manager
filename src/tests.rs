@@ -213,6 +213,29 @@ mod tests {
         assert!(manager.encryption_context.is_some());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_secure_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut manager =
+            DatabaseManager::new("PermTest".to_string(), SecurityLevel::Standard).unwrap();
+        let settings = test_security_settings();
+        manager.database.metadata.settings.security_settings = settings.clone();
+        manager.encryption_context =
+            Some(EncryptionContext::new("master", SecurityLevel::Standard, settings).unwrap());
+
+        let temp_file = NamedTempFile::new().unwrap();
+        let path = temp_file.path().to_path_buf();
+        manager
+            .save_to_file(path.to_str().unwrap(), "master")
+            .unwrap();
+
+        let metadata = std::fs::metadata(&path).unwrap();
+        let mode = metadata.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
     #[test]
     fn test_item_integrity() {
         let context = EncryptionContext::new(
