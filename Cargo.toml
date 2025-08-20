@@ -1,9 +1,27 @@
 [package]
 name = "password_manager"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-authors = ["Password Manager Team"]
+authors = ["Jacek Trefon - Trefon Digital Consulting"]
 description = "Ultra-secure password manager with quantum-resistant encryption"
+license-file = "LICENSE.md"
+repository = "https://github.com/jtrefon/quantum-password-manager"
+homepage = "https://github.com/jtrefon/quantum-password-manager"
+documentation = "https://github.com/jtrefon/quantum-password-manager#readme"
+readme = "README.md"
+keywords = [
+  "password-manager",
+  "security",
+  "encryption",
+  "quantum-resistant",
+  "cli"
+]
+# Categories must be from the crates.io allowed list
+categories = [
+  "command-line-utilities",
+  "cryptography",
+  "authentication"
+]
 
 [dependencies]
 # Core encryption and cryptography
