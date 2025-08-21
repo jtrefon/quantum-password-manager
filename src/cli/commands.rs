@@ -9,7 +9,7 @@ use chrono::Utc;
 use clap::{Args, Parser, Subcommand};
 use console::{style, Term};
 use dialoguer::{Confirm, Input, Password};
-use std::path::Path;
+use std::{path::Path, time::Duration};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -178,6 +178,10 @@ pub struct GenerateArgs {
     /// Display the generated password in the terminal
     #[arg(long)]
     show: bool,
+
+    /// Seconds before the clipboard is cleared
+    #[arg(long, default_value = "30")]
+    timeout: u64,
 }
 
 #[derive(Args)]
@@ -508,7 +512,7 @@ impl CliHandler {
         };
 
         let password = Zeroizing::new(crate::crypto::generate_password(&settings));
-        copy_to_clipboard(&password)?;
+        copy_to_clipboard(&password, Some(Duration::from_secs(args.timeout)))?;
         if args.show {
             term.write_line(&format!("Generated password: {}", *password))?;
         } else {

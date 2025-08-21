@@ -83,8 +83,10 @@ password_manager show --file passwords.db --id <item-uuid>
 
 #### Generate Password
 ```bash
-password_manager generate --length 32 --uppercase --lowercase --numbers --symbols
+password_manager generate --length 32 --uppercase --lowercase --numbers --symbols --timeout 45
 ```
+The generated password is copied to your clipboard and restored to its previous
+contents after the specified timeout (30 seconds by default).
 
 #### Verify Database Integrity
 ```bash
