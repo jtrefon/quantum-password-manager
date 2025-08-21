@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use crate::crypto::{generate_password, EncryptionContext};
     use crate::database::DatabaseManager;
     use crate::models::*;
@@ -8,11 +8,12 @@ mod tests {
     use uuid::Uuid;
 
     fn test_security_settings() -> SecuritySettings {
-        let mut settings = SecuritySettings::default();
-        settings.key_derivation_iterations = 10; // Very reduced for CI testing
-        settings.memory_cost = 64; // Very reduced for CI testing
-        settings.testing_mode = true; // Enable testing mode for faster execution
-        settings
+        SecuritySettings {
+            key_derivation_iterations: 10, // Very reduced for CI testing
+            memory_cost: 64,               // Very reduced for CI testing
+            testing_mode: true,            // Enable testing mode for faster execution
+            ..SecuritySettings::default()
+        }
     }
 
     #[test]
@@ -127,6 +128,7 @@ mod tests {
             item_type: ItemType::Credential,
             folder_id: None,
             tags: vec!["test".to_string()],
+            attachments: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
             hmac: String::new(),
@@ -181,6 +183,7 @@ mod tests {
             item_type: ItemType::Credential,
             folder_id: None,
             tags: Vec::new(),
+            attachments: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
             hmac: String::new(),
@@ -251,6 +254,7 @@ mod tests {
             item_type: ItemType::Note,
             folder_id: None,
             tags: Vec::new(),
+            attachments: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
             hmac: String::new(),
@@ -294,6 +298,7 @@ mod tests {
             item_type: ItemType::Note,
             folder_id: None,
             tags: Vec::new(),
+            attachments: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
             hmac: String::new(),
@@ -315,5 +320,60 @@ mod tests {
         let loaded_manager = DatabaseManager::load_from_file(file_path, "test_password").unwrap();
         let is_valid = loaded_manager.verify_integrity().unwrap();
         assert!(is_valid);
+    }
+
+    #[test]
+    fn test_item_attachments() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let file_path = temp_file.path().to_str().unwrap();
+
+        let mut manager =
+            DatabaseManager::new("Test Attach".to_string(), SecurityLevel::Standard).unwrap();
+        manager.database.metadata.settings.security_settings = test_security_settings();
+        // Initialize encryption context and persist database so attachments have a base path
+        manager.save_to_file(file_path, "master").unwrap();
+
+        let base = BaseItem {
+            id: Uuid::new_v4(),
+            name: "Attachment Item".to_string(),
+            item_type: ItemType::Note,
+            folder_id: None,
+            tags: Vec::new(),
+            attachments: Vec::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            hmac: String::new(),
+        };
+        let note = Note {
+            base,
+            content: "Has attachment".to_string(),
+            is_encrypted: false,
+            format: NoteFormat::PlainText,
+        };
+        let item = Item::Note(note);
+        let item_id = item.get_id();
+        manager.add_item(item).unwrap();
+
+        let data = b"certificate".to_vec();
+        let att_id = manager.add_attachment(item_id, "cert.pem", &data).unwrap();
+        assert_eq!(
+            manager
+                .get_item(item_id)
+                .unwrap()
+                .get_base()
+                .attachments
+                .len(),
+            1
+        );
+        let retrieved = manager.get_attachment(item_id, att_id).unwrap();
+        assert_eq!(retrieved, data);
+
+        manager.remove_attachment(item_id, att_id).unwrap();
+        assert!(manager
+            .get_item(item_id)
+            .unwrap()
+            .get_base()
+            .attachments
+            .is_empty());
     }
 }

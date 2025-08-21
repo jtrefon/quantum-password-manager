@@ -8,6 +8,7 @@ use std::fs;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -308,6 +309,92 @@ impl DatabaseManager {
         }
     }
 
+    /// Return path to the attachments directory for the current database file
+    #[allow(dead_code)]
+    fn attachments_dir(&self) -> Result<PathBuf> {
+        if let Some(path) = &self.file_path {
+            Ok(PathBuf::from(format!("{path}.att")))
+        } else {
+            Err(anyhow!("No file path set for database"))
+        }
+    }
+
+    /// Add an encrypted attachment to an item
+    #[allow(dead_code)]
+    pub fn add_attachment(&mut self, item_id: Uuid, file_name: &str, data: &[u8]) -> Result<Uuid> {
+        let ctx = self
+            .encryption_context
+            .as_ref()
+            .ok_or_else(|| anyhow!("Database not initialized with encryption context"))?;
+
+        let attachment_id = Uuid::new_v4();
+        let encrypted = ctx.encrypt(data)?;
+        let dir = self.attachments_dir()?.join(item_id.to_string());
+        fs::create_dir_all(&dir)
+            .map_err(|e| anyhow!("Failed to create attachment directory: {e}"))?;
+        let file_path = dir.join(attachment_id.to_string());
+        Self::write_secure_file(file_path.to_str().unwrap(), &encrypted)?;
+
+        if let Some(item) = self
+            .database
+            .items
+            .iter_mut()
+            .find(|i| i.get_id() == item_id)
+        {
+            item.get_base_mut()
+                .attachments
+                .push(crate::models::AttachmentMetadata {
+                    id: attachment_id,
+                    file_name: file_name.to_string(),
+                    mime_type: None,
+                    size: data.len() as u64,
+                });
+            self.database.updated_at = Utc::now();
+            Ok(attachment_id)
+        } else {
+            Err(anyhow!("Item not found"))
+        }
+    }
+
+    /// Retrieve and decrypt an attachment's contents
+    #[allow(dead_code)]
+    pub fn get_attachment(&self, item_id: Uuid, attachment_id: Uuid) -> Result<Vec<u8>> {
+        let ctx = self
+            .encryption_context
+            .as_ref()
+            .ok_or_else(|| anyhow!("Database not initialized with encryption context"))?;
+        let file_path = self
+            .attachments_dir()?
+            .join(item_id.to_string())
+            .join(attachment_id.to_string());
+        let data = fs::read(&file_path).map_err(|e| anyhow!("Failed to read attachment: {e}"))?;
+        ctx.decrypt(&data)
+    }
+
+    /// Remove an attachment and its metadata
+    #[allow(dead_code)]
+    pub fn remove_attachment(&mut self, item_id: Uuid, attachment_id: Uuid) -> Result<()> {
+        let dir = self
+            .attachments_dir()?
+            .join(item_id.to_string())
+            .join(attachment_id.to_string());
+        fs::remove_file(&dir).map_err(|e| anyhow!("Failed to remove attachment: {e}"))?;
+        if let Some(item) = self
+            .database
+            .items
+            .iter_mut()
+            .find(|i| i.get_id() == item_id)
+        {
+            item.get_base_mut()
+                .attachments
+                .retain(|a| a.id != attachment_id);
+            self.database.updated_at = Utc::now();
+            Ok(())
+        } else {
+            Err(anyhow!("Item not found"))
+        }
+    }
+
     /// Search items by name
     pub fn search_items(&self, query: &str) -> Vec<&Item> {
         let query_lower = query.to_lowercase();
@@ -446,6 +533,13 @@ impl DatabaseManager {
                 base.name.zeroize();
                 for tag in &mut base.tags {
                     tag.zeroize();
+                }
+                for attachment in &mut base.attachments {
+                    attachment.file_name.zeroize();
+                    if let Some(mime) = &mut attachment.mime_type {
+                        mime.zeroize();
+                    }
+                    attachment.size = 0;
                 }
             }
             match item {
