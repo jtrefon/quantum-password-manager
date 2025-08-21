@@ -669,6 +669,7 @@ impl CliHandler {
             item_type: item_type.clone(),
             folder_id: None,
             tags: Vec::new(),
+            attachments: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
             hmac: String::new(),

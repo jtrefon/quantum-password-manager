@@ -25,6 +25,19 @@ pub enum ItemType {
     SecureNote,
 }
 
+/// Metadata about an attachment associated with an item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachmentMetadata {
+    /// Unique identifier of the attachment
+    pub id: Uuid,
+    /// Original file name of the attachment
+    pub file_name: String,
+    /// Optional MIME type for the attachment
+    pub mime_type: Option<String>,
+    /// Size of the attachment in bytes
+    pub size: u64,
+}
+
 /// Base item structure with common fields
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BaseItem {
@@ -33,6 +46,9 @@ pub struct BaseItem {
     pub item_type: ItemType,
     pub folder_id: Option<Uuid>,
     pub tags: Vec<String>,
+    /// Metadata for files associated with this item. The actual encrypted
+    /// file contents are stored separately on disk.
+    pub attachments: Vec<AttachmentMetadata>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     /// Base64 encoded HMAC of the serialized item for integrity verification
