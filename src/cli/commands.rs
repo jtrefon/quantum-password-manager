@@ -284,6 +284,18 @@ impl CliHandler {
         Ok(Zeroizing::new(password))
     }
 
+    /// Prompt for the master password and load the database.
+    ///
+    /// Returning the password alongside the `DatabaseManager` allows
+    /// callers that need to persist changes to reuse the same
+    /// `Zeroizing` buffer, ensuring the secret is cleared from memory
+    /// as soon as it goes out of scope.
+    fn load_manager(file: &str) -> Result<(DatabaseManager, Zeroizing<String>)> {
+        let master_password = Self::prompt_password("Enter master password")?;
+        let manager = DatabaseManager::load_from_file(file, &master_password)?;
+        Ok((manager, master_password))
+    }
+
     fn handle_create(args: CreateArgs) -> Result<()> {
         let term = Term::stdout();
 
@@ -318,9 +330,7 @@ impl CliHandler {
             return Err(anyhow!("Database file does not exist"));
         }
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (manager, _master_password) = Self::load_manager(&args.file)?;
 
         term.write_line(&style("Database opened successfully!").green().to_string())?;
         term.write_line(&format!("Database: {}", manager.get_metadata().name))?;
@@ -332,9 +342,7 @@ impl CliHandler {
     fn handle_list(args: ListArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (manager, _master_password) = Self::load_manager(&args.file)?;
 
         let items = if let Some(type_filter) = args.type_filter {
             let item_type = match type_filter.as_str() {
@@ -381,9 +389,7 @@ impl CliHandler {
     fn handle_add(args: AddArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (mut manager, master_password) = Self::load_manager(&args.file)?;
 
         let item_type = match args.item_type.as_str() {
             "credential" => ItemType::Credential,
@@ -406,9 +412,7 @@ impl CliHandler {
     fn handle_show(args: ShowArgs) -> Result<()> {
         let _term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (manager, _master_password) = Self::load_manager(&args.file)?;
 
         let item_id = Uuid::parse_str(&args.id)?;
         if let Some(item) = manager.get_item(item_id) {
@@ -423,9 +427,7 @@ impl CliHandler {
     fn handle_edit(args: EditArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (mut manager, master_password) = Self::load_manager(&args.file)?;
 
         let item_id = Uuid::parse_str(&args.id)?;
         if let Some(item) = manager.get_item(item_id) {
@@ -444,9 +446,7 @@ impl CliHandler {
     fn handle_remove(args: RemoveArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (mut manager, master_password) = Self::load_manager(&args.file)?;
 
         let item_id = Uuid::parse_str(&args.id)?;
 
@@ -465,9 +465,7 @@ impl CliHandler {
     fn handle_search(args: SearchArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (manager, _master_password) = Self::load_manager(&args.file)?;
 
         let results = manager.search_items(&args.query);
 
@@ -525,9 +523,7 @@ impl CliHandler {
     fn handle_stats(args: StatsArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (manager, _master_password) = Self::load_manager(&args.file)?;
 
         let stats = manager.get_statistics();
         term.write_line(&stats.to_string())?;
@@ -538,9 +534,7 @@ impl CliHandler {
     fn handle_verify(args: VerifyArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (manager, _master_password) = Self::load_manager(&args.file)?;
 
         if manager.verify_integrity()? {
             term.write_line(
@@ -558,9 +552,7 @@ impl CliHandler {
     fn handle_export(args: ExportArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (manager, _master_password) = Self::load_manager(&args.file)?;
 
         manager.export_to_json(&args.output)?;
         term.write_line(&style("Database exported successfully!").green().to_string())?;
@@ -571,9 +563,7 @@ impl CliHandler {
     fn handle_import(args: ImportArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (mut manager, master_password) = Self::load_manager(&args.file)?;
 
         manager.import_from_json(&args.input)?;
         manager.save_to_file(&args.file, &master_password)?;
@@ -609,9 +599,7 @@ impl CliHandler {
     fn handle_lock(args: LockArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (mut manager, master_password) = Self::load_manager(&args.file)?;
         manager.lock();
         manager.save_to_file(&args.file, &master_password)?;
 
@@ -623,9 +611,7 @@ impl CliHandler {
     fn handle_unlock(args: UnlockArgs) -> Result<()> {
         let term = Term::stdout();
 
-        let master_password = Self::prompt_password("Enter master password")?;
-
-        let mut manager = DatabaseManager::load_from_file(&args.file, &master_password)?;
+        let (mut manager, master_password) = Self::load_manager(&args.file)?;
         manager.unlock(&master_password)?;
 
         term.write_line(&style("Database unlocked successfully!").green().to_string())?;
@@ -692,7 +678,7 @@ impl CliHandler {
             ItemType::Credential => {
                 let username = Input::<String>::new().with_prompt("Username").interact()?;
 
-                let password = Password::new().with_prompt("Password").interact()?;
+                let password = Self::prompt_password("Password")?;
 
                 let url = Input::<String>::new()
                     .with_prompt("URL (optional)")
@@ -707,7 +693,7 @@ impl CliHandler {
                 let credential = Credential {
                     base,
                     username,
-                    password,
+                    password: password.to_string(),
                     url: if url.is_empty() { None } else { Some(url) },
                     notes: if notes.is_empty() { None } else { Some(notes) },
                     totp_secret: None,
@@ -736,14 +722,12 @@ impl CliHandler {
                 Ok(Item::Folder(folder))
             }
             ItemType::Key => {
-                let key_data = Password::new()
-                    .with_prompt("Key data (base64)")
-                    .interact()?;
+                let key_data = Self::prompt_password("Key data (base64)")?;
 
                 let key = Key {
                     base,
                     key_type: KeyType::Symmetric,
-                    key_data,
+                    key_data: key_data.to_string(),
                     algorithm: "AES-256".to_string(),
                     key_size: 256,
                     usage: vec![KeyUsage::Encryption, KeyUsage::Decryption],
@@ -784,13 +768,11 @@ impl CliHandler {
                 Ok(Item::Note(note))
             }
             ItemType::SecureNote => {
-                let content = Password::new()
-                    .with_prompt("Secure note content")
-                    .interact()?;
+                let content = Self::prompt_password("Secure note content")?;
 
                 let secure_note = SecureNote {
                     base,
-                    encrypted_content: content,
+                    encrypted_content: content.to_string(),
                     content_type: "text/plain".to_string(),
                     additional_metadata: std::collections::HashMap::new(),
                 };
