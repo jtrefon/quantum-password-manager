@@ -66,5 +66,15 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 # Memory cleanup
 zeroize = "1.8"
 
+[package.metadata.deb]
+maintainer = "Jacek Trefon - Trefon Digital Consulting"
+copyright = "2025, Jacek Trefon"
+license-file = ["LICENSE.md", "4"]
+
+[package.metadata.rpm]
+license = "MIT"
+vendor = "Trefon Digital Consulting"
+packager = "Jacek Trefon"
+
 [dev-dependencies]
 tempfile = "3.8"
