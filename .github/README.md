@@ -12,6 +12,7 @@ This repository includes a comprehensive CI/CD pipeline that automatically build
 4. **Build** - Multi-platform builds
 5. **Release** - GitHub releases
 6. **Publish** - Crates.io publishing
+7. **Debian Package** - Build .deb release for Ubuntu/Debian
 
 ### Supported Platforms
 
@@ -57,6 +58,7 @@ The pipeline creates the following artifacts:
 - `password_manager-windows-x86_64.zip`
 - `password_manager-macos-x86_64.tar.gz`
 - `password_manager-macos-aarch64.tar.gz`
+- `password_manager_amd64.deb`
 
 ## 🧪 Testing
 
