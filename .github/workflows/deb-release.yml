@@ -25,7 +25,7 @@ jobs:
         run: cargo install cargo-deb
 
       - name: Build Debian package
-        run: cargo deb --locked
+        run: cargo deb
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
